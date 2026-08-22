@@ -15,6 +15,9 @@ Everything runs on your machine. No API keys, no uploads, no network calls.
 
 ## Quick start
 
+Full setup, troubleshooting and uninstall instructions are in
+**[INSTALL.md](INSTALL.md)**. The short version:
+
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e ".[all,dev]"
 ```
