@@ -1,0 +1,25 @@
+# podman compose up -d    (or: docker compose up -d)
+#
+# Point BOOKS at wherever your cookbooks live, either by editing the default
+# below or by exporting it:  export BOOKS=~/Books/Cookbooks
+services:
+  pantry-chef:
+    build:
+      context: .
+      dockerfile: Containerfile
+    image: pantry-chef:latest
+    container_name: pantry-chef
+    ports:
+      # Bound to localhost only: this is a personal app with no authentication.
+      - "127.0.0.1:8077:8077"
+    volumes:
+      # Your cookbooks, read-only. The app only ever reads them.
+      - ${BOOKS:-./books}:/books:ro
+      # The index and photo cache, so they survive the container.
+      - pantry-chef-data:/data
+    environment:
+      PANTRY_CHEF_DB: /data/pantry-chef.db
+    restart: unless-stopped
+
+volumes:
+  pantry-chef-data:

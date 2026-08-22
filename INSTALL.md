@@ -135,6 +135,103 @@ export PANTRY_CHEF_DB=/path/to/recipes.db
 
 ---
 
+## Running in a container (Podman or Docker)
+
+> **Status: written, not yet run.** The Python packaging underneath it is
+> verified — a non-editable install serves the pages, static assets, API and
+> recipe photos correctly, which is exactly what the image does. What has not
+> been exercised is the Linux layer: the base image, the apt packages and the
+> volume permissions. Treat the first build as a trial.
+
+A `Containerfile` and a `compose.yaml` are included. Podman and Docker both read
+them; the commands below use `podman`, and `docker` works identically.
+
+### Before you start: pick one home and stay there
+
+**The database records where each book lives.** Index inside the container and
+the paths are `/books/…`; index on the host and they are `/Users/you/…`. Those
+paths are what recipe photos are read from at display time, so a database built
+in one place will show no photos in the other, and re-indexing will treat every
+book as new.
+
+Choose the container *or* the host, and keep to it. Switching means one
+`index --force` to rewrite the paths.
+
+### Build
+
+```bash
+podman build -t pantry-chef -f Containerfile .
+```
+
+### Index your books
+
+A one-off run, with the same volumes the server will use:
+
+```bash
+podman run --rm \
+  -v ~/Books/Cookbooks:/books:ro \
+  -v pantry-chef-data:/data \
+  pantry-chef pantry-chef index /books
+```
+
+### Serve
+
+```bash
+podman run -d --name pantry-chef \
+  -p 127.0.0.1:8077:8077 \
+  -v ~/Books/Cookbooks:/books:ro \
+  -v pantry-chef-data:/data \
+  pantry-chef
+```
+
+Then open **http://127.0.0.1:8077**.
+
+Or with compose:
+
+```bash
+BOOKS=~/Books/Cookbooks podman compose up -d
+```
+
+### Why the volumes are what they are
+
+| Mount | Why |
+|---|---|
+| `/books` **read-only** | Your library is never copied into the image and never modified. It must stay mounted while the app runs, because recipe photos are read from the books on demand. |
+| `/data` | The index and the photo cache. Without it, every restart re-reads your whole library. |
+
+The port is bound to `127.0.0.1` deliberately. **Pantry Chef has no
+authentication** — it assumes it is reachable only by you. Publishing it on
+`0.0.0.0` exposes your library to anything that can reach the host.
+
+### Platform notes
+
+**macOS.** Podman runs Linux in a VM, so the book folder must be shared with
+that VM. Recent Podman versions mount your home directory automatically; if your
+books live elsewhere, add it when creating the machine:
+
+```bash
+podman machine init -v /Volumes/Books:/Volumes/Books
+podman machine start
+```
+
+**SELinux (Fedora, RHEL).** Append `:Z` to bind mounts so the container may read
+them: `-v ~/Books/Cookbooks:/books:ro,Z`.
+
+**Rootless file ownership.** The container runs as UID 1000. A *named* volume
+(as above, and as in `compose.yaml`) is initialised with the right ownership
+automatically. If you bind-mount a host directory at `/data` instead, add `:U`
+so Podman adjusts it: `-v ./data:/data:U`.
+
+### Is a container worth it here?
+
+On Linux, yes — it isolates the dependencies cleanly. On macOS it is a harder
+sell: Podman adds a VM between the app and your books, file access across that
+boundary is slower, and the venv install in step 3 has none of those problems.
+The container earns its place if you want to run Pantry Chef on a home server or
+NAS and reach it from a laptop.
+
+---
+
 ## Verifying the install
 
 ```bash
