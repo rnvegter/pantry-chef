@@ -155,12 +155,15 @@ Now go to [Index your cookbooks](#index-your-cookbooks).
 > no failures, served every page and endpoint, and extracted recipe photographs
 > live from the read-only book mount. The image is **257 MB**.
 >
-> `podman compose` was not exercised, because it needs a compose provider
-> installed separately; the plain `podman run` commands below are the tested
-> path.
+> Compose was exercised too, with `podman-compose` against the same
+> `compose.yaml` that Docker reads. Docker itself was not run — there is none on
+> the machine this was written on.
 
 A `Containerfile` and a `compose.yaml` are included. Podman and Docker both read
-them; the commands below use `podman`, and `docker` works identically.
+them; the commands below use `podman`, and `docker` works identically. To put
+this on a server rather than your own machine — with a reverse proxy, HTTPS and
+a password in front — see **[DEPLOY.md](DEPLOY.md)**, which has a route written
+out in full for each platform.
 
 ### First, pick one home and stay there
 
@@ -202,10 +205,20 @@ podman run -d --name pantry-chef \
 
 Then open **http://127.0.0.1:8077**.
 
-Or with compose:
+Or with Compose, which builds and runs in one step:
 
 ```bash
-BOOKS=~/Books/Cookbooks podman compose up -d
+echo "BOOKS=$HOME/Books/Cookbooks" > .env
+docker compose up -d                    # or: podman-compose up -d
+```
+
+Then build the index **through Compose**, so it lands in the volume the service
+actually reads — Compose prefixes volume names with the project name, so a bare
+`docker run -v pantry-chef-data:/data` would write somewhere else and the app
+would report no database:
+
+```bash
+docker compose run --rm pantry-chef pantry-chef index /books
 ```
 
 ### Why the volumes are what they are

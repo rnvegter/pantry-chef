@@ -1,11 +1,23 @@
-# podman compose up -d    (or: docker compose up -d)
+# Pantry Chef via Compose. Works with Docker and with Podman.
 #
-# Note: `podman compose` is a shim and needs a provider installed separately
-# (podman-compose, or Docker's compose plugin). If you have neither, the plain
-# `podman run` commands in INSTALL.md do the same job and need nothing extra.
+#   docker compose up -d                 # Docker: compose v2 is built in
+#   podman-compose up -d                 # Podman: pip install podman-compose
 #
-# Point BOOKS at wherever your cookbooks live, either by editing the default
-# below or by exporting it:  export BOOKS=~/Books/Cookbooks
+# `podman compose` (with a space) is only a shim and needs one of those
+# providers installed anyway; the plain `podman run` commands in DEPLOY.md
+# need nothing extra.
+#
+# Point BOOKS at your cookbooks. A .env file beside this one is read
+# automatically, which is tidier than exporting it every time:
+#
+#   echo "BOOKS=/srv/cookbooks" > .env
+#
+# Then build the index THROUGH COMPOSE, so it lands in the same volume the
+# service reads — Compose prefixes volume names with the project name, so a
+# bare `docker run -v pantry-chef-data:/data` writes somewhere else entirely:
+#
+#   docker compose run --rm pantry-chef pantry-chef index /books
+
 services:
   pantry-chef:
     build:
