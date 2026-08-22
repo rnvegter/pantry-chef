@@ -9,7 +9,7 @@ your cookbooks and the index built from them never leave your machine.
 
 | | |
 |---|---|
-| **Python** | 3.11 or newer (`python3 --version`) |
+| **Python** | 3.11 or newer (`python3 --version`) — not needed for the container route |
 | **Disk** | ~200 MB for a 500-book library, plus a photo cache that grows as you browse |
 | **OS** | macOS, Linux or Windows |
 
@@ -18,14 +18,34 @@ library.
 
 ---
 
-## 1. Get the code
+## Choose an install route
+
+Four ways in. They all end up at the same place — pick the one that suits how
+you already work.
+
+| Route | Best for | Status |
+|---|---|---|
+| **[A. venv + pip](#a-venv--pip)** | most people; the default | tested end to end |
+| **[B. uv](#b-uv)** | you already use `uv` and want it fast | packaging verified, commands standard |
+| **[C. pipx](#c-pipx)** | you only want the `pantry-chef` command | packaging verified, commands standard |
+| **[D. Podman or Docker](#d-podman-or-docker)** | a home server or NAS, or isolation on Linux | image not yet built — see the note |
+
+On *status*: route A was installed from scratch and run end to end. B and C are
+thin wrappers over the same standard Python packaging, which was verified
+independently — a non-editable install into a clean environment serves the
+pages, static assets, API and recipe photos correctly. Route D has not been
+built; the note in that section says what that does and does not mean.
+
+Every route needs the source first:
 
 ```bash
 git clone https://github.com/rnvegter/pantry-chef.git
 cd pantry-chef
 ```
 
-## 2. Create a virtual environment
+---
+
+## A. venv + pip
 
 A virtual environment keeps these dependencies out of your system Python.
 
@@ -33,7 +53,7 @@ A virtual environment keeps these dependencies out of your system Python.
 python3 -m venv .venv
 ```
 
-On **macOS and Linux**:
+Activate it — on **macOS and Linux**:
 
 ```bash
 source .venv/bin/activate
@@ -45,14 +65,14 @@ On **Windows** (PowerShell):
 .venv\Scripts\Activate.ps1
 ```
 
-## 3. Install
+Then install:
 
 ```bash
 pip install -e ".[all]"
 ```
 
 `[all]` adds PDF and Kindle support. If you only have EPUB books you can install
-the bare package instead — EPUB needs no third-party library at all:
+less — EPUB needs no third-party library at all:
 
 | Command | What you get |
 |---|---|
@@ -62,91 +82,83 @@ the bare package instead — EPUB needs no third-party library at all:
 | `pip install -e ".[all]"` | all formats |
 | `pip install -e ".[all,dev]"` | all formats plus the test suite |
 
-> **Note on the examples below.** They assume you have activated the virtual
-> environment, so `python` means the one inside `.venv`. If you would rather not
-> activate it, replace `python` with `.venv/bin/python` (or
-> `.venv\Scripts\python.exe` on Windows) everywhere.
+> **On the examples below.** They assume the virtual environment is activated,
+> so `python` means the one inside `.venv`. If you would rather not activate it,
+> use `.venv/bin/python` (or `.venv\Scripts\python.exe` on Windows) instead.
+
+Now go to [Index your cookbooks](#index-your-cookbooks).
 
 ---
 
-## 4. Index your cookbooks
+## B. uv
 
-Point it at the folder your ebooks live in:
-
-```bash
-python -m pantry_chef index ~/Books/Cookbooks
-```
-
-This is the slow part, and you only do it once. Expect roughly **150 ms per
-book** — a 500-book library takes a minute or two. Progress prints as it goes:
-
-```
-found 6 book(s)
-[1/6] Weeknight Dinners.epub -> 132 recipe(s) in 3.0s
-...
-scanned 6 · indexed 6 · skipped 0 · failed 0 · 586 recipes in 3.4s
-```
-
-Re-running is cheap. Files are hashed, so unchanged books are skipped and only
-new ones are read.
-
-Check what you ended up with:
+[uv](https://github.com/astral-sh/uv) is a fast drop-in replacement for `pip`
+and `venv`. If you have it:
 
 ```bash
-python -m pantry_chef stats
+uv venv
+uv pip install -e ".[all]"
 ```
 
-## 5. Start the app
+Then either activate `.venv` as above, or prefix commands with `uv run`:
 
 ```bash
-python -m pantry_chef serve
+uv run pantry-chef index ~/Books/Cookbooks
+uv run pantry-chef serve
 ```
 
-Then open **http://127.0.0.1:8077**. Search is at `/`, and the library manager
-— where you add folders and watch indexing happen — is at `/library`.
+The same extras apply — `".[pdf]"`, `".[kindle]"`, `".[all,dev]"`.
 
-If you would rather add folders through the interface than the command line,
-skip step 4 entirely: start the app, go to **Library**, and add a folder there.
+Now go to [Index your cookbooks](#index-your-cookbooks).
 
 ---
 
-## Where your data lives
+## C. pipx
 
-| Path | What it is | In git? |
-|---|---|---|
-| `data/pantry-chef.db` | the index: recipes, ingredients, tags | no |
-| `data/image-cache/` | downscaled recipe photos, rebuilt on demand | no |
-
-Both are safe to delete; re-indexing rebuilds them. Nothing else is written
-outside the project folder, and **your ebooks are never copied or modified** —
-they are only read.
-
-To keep the database somewhere else:
+[pipx](https://pipx.pypa.io/) installs a command-line application into its own
+isolated environment and puts the command on your `PATH`. Good if you want
+`pantry-chef` available everywhere and never intend to edit the code.
 
 ```bash
-python -m pantry_chef --db /path/to/recipes.db stats
+pipx install ".[all]"
 ```
 
-or set it once:
+Then the command works from any directory:
 
 ```bash
-export PANTRY_CHEF_DB=/path/to/recipes.db
+pantry-chef index ~/Books/Cookbooks
+pantry-chef serve
 ```
+
+Because there is no project directory to fall back on, **tell it where to keep
+the database**, otherwise it lands in `data/` relative to wherever you happen to
+be standing:
+
+```bash
+export PANTRY_CHEF_DB=~/.local/share/pantry-chef/pantry-chef.db
+```
+
+Put that line in your shell profile to make it permanent. To upgrade later,
+`pipx install --force ".[all]"` from an updated clone.
+
+Now go to [Index your cookbooks](#index-your-cookbooks).
 
 ---
 
-## Running in a container (Podman or Docker)
+## D. Podman or Docker
 
-> **Status: written, not yet run.** The Python packaging underneath it is
-> verified — a non-editable install serves the pages, static assets, API and
-> recipe photos correctly, which is exactly what the image does. What has not
-> been exercised is the Linux layer: the base image, the apt packages and the
-> volume permissions. Treat the first build as a trial.
+> **Status: written, not yet built.** Podman was not installed on the machine
+> this was written on, so the image has never been assembled. The Python
+> packaging underneath it *is* verified — a non-editable install, which is
+> exactly what the image performs, serves the pages, static assets, API and
+> recipe photos correctly. What has not been exercised is the Linux layer: the
+> base image, the two apt libraries and the volume permissions. Treat the first
+> build as a trial.
 
 A `Containerfile` and a `compose.yaml` are included. Podman and Docker both read
 them; the commands below use `podman`, and `docker` works identically.
 
-### Before you start: pick one home and stay there
+### First, pick one home and stay there
 
 **The database records where each book lives.** Index inside the container and
 the paths are `/books/…`; index on the host and they are `/Users/you/…`. Those
@@ -154,7 +166,7 @@ paths are what recipe photos are read from at display time, so a database built
 in one place will show no photos in the other, and re-indexing will treat every
 book as new.
 
-Choose the container *or* the host, and keep to it. Switching means one
+Choose the container *or* the host, and keep to it. Switching costs one
 `index --force` to rewrite the paths.
 
 ### Build
@@ -226,16 +238,85 @@ so Podman adjusts it: `-v ./data:/data:U`.
 
 On Linux, yes — it isolates the dependencies cleanly. On macOS it is a harder
 sell: Podman adds a VM between the app and your books, file access across that
-boundary is slower, and the venv install in step 3 has none of those problems.
-The container earns its place if you want to run Pantry Chef on a home server or
-NAS and reach it from a laptop.
+boundary is slower, and route A has none of those problems. The container earns
+its place if you want to run Pantry Chef on a home server or NAS and reach it
+from a laptop.
+
+---
+
+## Index your cookbooks
+
+*Routes A, B and C. The container route has its own commands above.*
+
+Point it at the folder your ebooks live in:
+
+```bash
+python -m pantry_chef index ~/Books/Cookbooks
+```
+
+This is the slow part, and you only do it once. Expect roughly **150 ms per
+book** — a 500-book library takes a minute or two. Progress prints as it goes:
+
+```
+found 6 book(s)
+[1/6] Weeknight Dinners.epub -> 132 recipe(s) in 3.0s
+...
+scanned 6 · indexed 6 · skipped 0 · failed 0 · 586 recipes in 3.4s
+```
+
+Re-running is cheap. Files are hashed, so unchanged books are skipped and only
+new ones are read.
+
+Check what you ended up with:
+
+```bash
+python -m pantry_chef stats
+```
+
+## Start the app
+
+```bash
+python -m pantry_chef serve
+```
+
+Then open **http://127.0.0.1:8077**. Search is at `/`, and the library manager —
+where you add folders and watch indexing happen — is at `/library`.
+
+If you would rather add folders through the interface than the command line,
+skip the indexing step entirely: start the app, go to **Library**, and add a
+folder there.
+
+---
+
+## Where your data lives
+
+| Path | What it is | In git? |
+|---|---|---|
+| `data/pantry-chef.db` | the index: recipes, ingredients, tags | no |
+| `data/image-cache/` | downscaled recipe photos, rebuilt on demand | no |
+
+Both are safe to delete; re-indexing rebuilds them. Nothing else is written
+outside the project folder, and **your ebooks are never copied or modified** —
+they are only read.
+
+To keep the database somewhere else:
+
+```bash
+python -m pantry_chef --db /path/to/recipes.db stats
+```
+
+or set it once:
+
+```bash
+export PANTRY_CHEF_DB=/path/to/recipes.db
+```
 
 ---
 
 ## Verifying the install
 
 ```bash
-pip install -e ".[all,dev]"
+pip install -e ".[all,dev]"     # or: uv pip install -e ".[all,dev]"
 pytest -q
 ```
 
@@ -250,6 +331,11 @@ cookbooks, so you do not need any books of your own to run them.
 Install Python 3.11+ from [python.org](https://www.python.org/downloads/), or
 `brew install python` on macOS.
 
+**`command not found: pantry-chef`**
+The virtual environment is not activated. Either activate it, or use
+`python -m pantry_chef` instead — that works whenever the environment's Python
+is the one running.
+
 **A book fails with "File is not a zip file"**
 It is DRM-protected, or the download was truncated. DRM cannot be read by any of
 these parsers. Remove the DRM from your own copy first (Calibre with the DeDRM
@@ -261,7 +347,8 @@ extract. Run OCR over it — macOS Preview, Acrobat, or
 [`ocrmypdf`](https://github.com/ocrmypdf/OCRmyPDF) — and index it again.
 
 **"install pymupdf to index PDF cookbooks"**
-The optional PDF dependency is missing: `pip install pymupdf`.
+The optional PDF dependency is missing: `pip install pymupdf`, or reinstall with
+the `[all]` extra.
 
 **Port 8077 is already in use**
 
@@ -285,7 +372,9 @@ language with the fix, and has a Retry button.
 
 ```bash
 git pull
-pip install -e ".[all]"
+pip install -e ".[all]"          # uv:   uv pip install -e ".[all]"
+                                 # pipx: pipx install --force ".[all]"
+                                 # container: podman build -t pantry-chef -f Containerfile .
 ```
 
 If an update changes how recipes are parsed, re-read your books to pick up the
@@ -304,5 +393,10 @@ recipe ids**, because recipes are replaced rather than updated, so bookmarked
 
 ## Uninstalling
 
-Delete the folder. Nothing is installed system-wide, no background service is
-registered, and your ebooks are untouched.
+| Route | How |
+|---|---|
+| venv + pip, uv | delete the folder — nothing is installed system-wide |
+| pipx | `pipx uninstall pantry-chef`, then delete the folder |
+| container | `podman rm -f pantry-chef && podman rmi pantry-chef && podman volume rm pantry-chef-data` |
+
+No background service is registered on any route, and your ebooks are untouched.
