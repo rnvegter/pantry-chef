@@ -1,0 +1,33 @@
+[project]
+name = "pantry-chef"
+version = "0.1.0"
+description = "Pantry Chef — search a library of digital cookbooks by the ingredients you have and the time you've got"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+]
+
+[project.optional-dependencies]
+# EPUB is handled with the standard library alone; these add the other formats.
+pdf = ["pymupdf>=1.24"]
+kindle = ["mobi>=0.3"]
+all = ["pymupdf>=1.24", "mobi>=0.3"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+pantry-chef = "pantry_chef.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["pantry_chef*"]
+
+[tool.setuptools.package-data]
+"pantry_chef.web" = ["static/*"]

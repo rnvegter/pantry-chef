@@ -1,0 +1,90 @@
+/* Design tokens and the base furniture shared by every page.
+
+   The palette is a kitchen garden: basil green leads, on a cream ground, with
+   tomato and honey carrying the warnings. Green reads fresh rather than heavy,
+   and it keeps the semantic colours honest -- ready is leaf, missing is honey,
+   broken is tomato -- without any of them fighting the accent.
+
+   Contrast against the surface behind it is at least 4.5:1 for every colour
+   used on text, in both schemes. */
+:root {
+  --bg: #fafbf6; --surface: #ffffff; --line: #e5e8dc; --ink: #1c2118;
+  --muted: #6a7163; --accent: #4a7c3f; --accent-soft: #eaf2e3;
+  --ok: #2f7d51; --ok-soft: #e2f1e7;
+  --warn: #8f6712; --warn-soft: #f9f0da;
+  --bad: #b23c29; --bad-soft: #fae9e5;
+  /* Text laid on top of a filled accent or danger surface. In dark mode the
+     accent is a light green, so white on it would be unreadable. */
+  --on-accent: #ffffff; --on-bad: #ffffff;
+  --radius: 12px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #13170f; --surface: #1c2118; --line: #333b2d; --ink: #eef1e6;
+    --muted: #9fa694; --accent: #9ac97f; --accent-soft: #26301d;
+    --ok: #86cf9c; --ok-soft: #1b2a20;
+    --warn: #e2be76; --warn-soft: #2f2715;
+    --bad: #ea9382; --bad-soft: #331f1b;
+    --on-accent: #13170f; --on-bad: #13170f;
+  }
+}
+* { box-sizing: border-box; }
+/* Author styles on an element type (label, section…) beat the browser's
+   [hidden] rule, so restate it with weight. */
+[hidden] { display: none !important; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 28px 20px 80px; }
+
+header { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 22px; }
+h1 { font-size: 24px; margin: 0; letter-spacing: -0.02em; }
+h1 span { color: var(--accent); }
+h2 { font-size: 17px; margin: 0 0 12px; letter-spacing: -0.01em; }
+.stats { color: var(--muted); font-size: 13px; }
+nav { margin-left: auto; display: flex; gap: 4px; }
+nav a {
+  color: var(--muted); text-decoration: none; font-size: 14px;
+  padding: 5px 12px; border-radius: 999px; border: 1px solid transparent;
+}
+nav a:hover { color: var(--accent); }
+nav a[aria-current="page"] {
+  color: var(--accent); border-color: var(--line); background: var(--surface);
+}
+
+.panel {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 18px; margin-bottom: 22px;
+}
+label { display: block; font-size: 12px; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--muted); margin-bottom: 7px; }
+.value { color: var(--ink); font-weight: 600; font-size: 14px;
+  text-transform: none; letter-spacing: 0; }
+
+input[type=text], input[type=search], select {
+  width: 100%; padding: 9px 10px; border: 1px solid var(--line);
+  border-radius: 9px; background: var(--bg); color: inherit; font: inherit;
+}
+input[type=range] { width: 100%; accent-color: var(--accent); }
+
+button.go {
+  background: var(--accent); color: var(--on-accent); border: 0; padding: 10px 20px;
+  border-radius: 9px; font: inherit; font-weight: 600; cursor: pointer;
+}
+button.go:hover { filter: brightness(1.08); }
+button.go:disabled { opacity: .45; cursor: not-allowed; filter: none; }
+button.ghost {
+  background: none; border: 1px solid var(--line); color: var(--muted);
+  padding: 9px 14px; border-radius: 9px; font: inherit; cursor: pointer;
+}
+button.ghost:hover { border-color: var(--accent); color: var(--accent); }
+button.ghost:disabled { opacity: .45; cursor: not-allowed; }
+
+.note { color: var(--muted); font-size: 13px; }
+.empty { text-align: center; color: var(--muted); padding: 40px 20px; }
+.badge { display: inline-block; padding: 2px 9px; border-radius: 999px;
+  font-size: 12px; font-weight: 600; }
+.badge.ready { background: var(--ok-soft); color: var(--ok); }
+.badge.short { background: var(--warn-soft); color: var(--warn); }
+.badge.bad   { background: var(--bad-soft); color: var(--bad); }

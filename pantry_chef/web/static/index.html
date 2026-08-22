@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pantry Chef</title>
+<link rel="stylesheet" href="/static/app.css">
+<style>
+.controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 16px; margin-top: 16px; align-items: end; }
+.actions { display: flex; gap: 10px; margin-top: 16px; align-items: center; flex-wrap: wrap; }
+
+.chips {
+  display: flex; flex-wrap: wrap; gap: 6px; padding: 8px;
+  border: 1px solid var(--line); border-radius: 9px; background: var(--bg);
+  min-height: 44px; align-items: center;
+}
+.chips:focus-within { border-color: var(--accent); }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px;
+  background: var(--accent-soft); color: var(--accent);
+  border-radius: 999px; font-size: 13px; font-weight: 500;
+}
+.chip button {
+  border: 0; background: none; color: inherit; cursor: pointer;
+  padding: 0; font-size: 15px; line-height: 1; opacity: .65;
+}
+.chip button:hover { opacity: 1; }
+.chips input {
+  flex: 1; min-width: 150px; border: 0; outline: 0; background: none;
+  color: inherit; font: inherit; padding: 4px;
+}
+
+.combo { position: relative; }
+.suggest {
+  position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 4px);
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 9px; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,.10);
+}
+.suggest div { padding: 7px 11px; cursor: pointer; display: flex;
+  justify-content: space-between; gap: 12px; font-size: 14px; }
+.suggest div:hover, .suggest div[aria-selected="true"] { background: var(--accent-soft); }
+.suggest small { color: var(--muted); }
+
+.value { color: var(--ink); font-weight: 600; font-size: 14px;
+  text-transform: none; letter-spacing: 0; }
+
+
+.quick { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.quick button {
+  border: 1px dashed var(--line); background: none; color: var(--muted);
+  border-radius: 999px; padding: 3px 10px; font: inherit; font-size: 13px; cursor: pointer;
+}
+.quick button:hover { border-color: var(--accent); color: var(--accent); }
+
+.filters { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 16px; }
+.filters > div { flex: 1 1 260px; }
+.pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.pills button {
+  border: 1px solid var(--line); background: var(--bg); color: var(--muted);
+  border-radius: 999px; padding: 5px 13px; font: inherit; font-size: 13px;
+  cursor: pointer; text-transform: capitalize;
+}
+.pills button:hover { border-color: var(--accent); }
+.pills button[aria-pressed="true"] {
+  background: var(--accent); border-color: var(--accent);
+  color: var(--on-accent); font-weight: 600;
+}
+.pills.avoid button[aria-pressed="true"] {
+  background: var(--bad); border-color: var(--bad); color: var(--on-bad);
+}
+.allergens { font-size: 13px; color: var(--muted); margin-top: 4px; }
+.caveat { font-size: 13px; color: var(--warn); margin-top: 4px; }
+.pills small { opacity: .7; font-weight: 400; }
+
+.card {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 16px 18px; margin-bottom: 12px;
+}
+.card h3 { margin: 0 0 4px; font-size: 17px; letter-spacing: -0.01em; }
+.meta { color: var(--muted); font-size: 13px; display: flex;
+  flex-wrap: wrap; gap: 6px 12px; margin-bottom: 10px; }
+.bar { height: 4px; background: var(--line); border-radius: 3px;
+  overflow: hidden; margin: 10px 0; }
+.bar i { display: block; height: 100%; background: var(--accent); }
+.need { font-size: 14px; }
+.need b { color: var(--warn); font-weight: 600; }
+.have-list { font-size: 13px; color: var(--muted); margin-top: 4px; }
+a.open {
+  display: inline-block; margin-top: 12px; color: var(--accent);
+  font-size: 14px; text-decoration: none; font-weight: 500;
+}
+a.open:hover { text-decoration: underline; }
+.method { white-space: pre-wrap; margin-top: 10px; font-size: 14px; }
+.ing-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px,1fr));
+  gap: 2px 14px; margin-top: 10px; font-size: 14px; }
+.ing-grid span.no { color: var(--warn); }
+.ing-grid span.st { color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Pantry Chef<span>.</span></h1>
+    <div class="stats" id="stats">loading…</div>
+    <nav>
+      <a href="/" aria-current="page">Search</a>
+      <a href="/library">Library</a>
+    </nav>
+  </header>
+
+  <div class="panel">
+    <div class="combo">
+      <label for="ing">What have you got?</label>
+      <div class="chips" id="chips">
+        <input id="ing" autocomplete="off" placeholder="chicken thighs, garlic, lemon…"
+               aria-label="Add an ingredient">
+      </div>
+      <div class="suggest" id="suggest" hidden></div>
+    </div>
+    <div class="quick" id="quick"></div>
+
+    <div class="filters">
+      <div>
+        <label>Meal</label>
+        <div class="pills" id="meals"></div>
+      </div>
+      <div>
+        <label for="cuisine">Style of cooking</label>
+        <select id="cuisine"><option value="">Any style</option></select>
+      </div>
+      <div style="flex-basis:100%">
+        <label>Diet</label>
+        <div class="pills" id="diets"></div>
+      </div>
+      <div style="flex-basis:100%">
+        <label>Avoid <span class="value" id="avoidNote"></span></label>
+        <div class="pills avoid" id="allergens"></div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div>
+        <label for="time">Time <span class="value" id="timeLabel">any</span></label>
+        <input type="range" id="time" min="0" max="180" step="5" value="0">
+      </div>
+      <div>
+        <label for="missing">Willing to shop for <span class="value" id="missLabel">3</span></label>
+        <input type="range" id="missing" min="0" max="8" step="1" value="3">
+      </div>
+      <div>
+        <label for="sort">Order by</label>
+        <select id="sort">
+          <option value="best">Best match</option>
+          <option value="quickest">Quickest first</option>
+          <option value="coverage">Most complete</option>
+        </select>
+      </div>
+      <div>
+        <label for="text">Also mentions</label>
+        <input type="text" id="text" placeholder="e.g. traybake">
+      </div>
+      <div>
+        <label for="title">Recipe title</label>
+        <input type="text" id="title" placeholder="e.g. orange chicken">
+      </div>
+      <div>
+        <label for="author">Author</label>
+        <input type="text" id="author" list="authorList" placeholder="e.g. Ottolenghi">
+        <datalist id="authorList"></datalist>
+      </div>
+      <div>
+        <label for="book">Cookbook</label>
+        <input type="text" id="book" list="bookList" placeholder="e.g. Simple">
+        <datalist id="bookList"></datalist>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="go" id="go">Find recipes</button>
+      <button class="ghost" id="clear">Clear</button>
+      <label class="note" style="text-transform:none;letter-spacing:0;margin:0">
+        <input type="checkbox" id="noWait"> skip overnight recipes
+      </label>
+      <label class="note" id="strictWrap" hidden
+             style="text-transform:none;letter-spacing:0;margin:0"
+             title="Drops any recipe containing an ingredient we could not identify">
+        <input type="checkbox" id="strict"> strict: hide recipes with unrecognised ingredients
+      </label>
+    </div>
+  </div>
+
+  <div id="msg" class="note" style="margin-bottom:12px"></div>
+  <div id="results"></div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let pantry = [];
+let meals = new Set();
+let diets = new Set();
+let avoid = new Set();
+let cursor = -1;
+
+// --- pantry chips ---------------------------------------------------------
+
+function renderChips() {
+  [...$("chips").querySelectorAll(".chip")].forEach(c => c.remove());
+  pantry.forEach((name, i) => {
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    chip.textContent = name;
+    const x = document.createElement("button");
+    x.type = "button";
+    x.textContent = "×";
+    x.title = "remove";
+    x.onclick = () => { pantry.splice(i, 1); renderChips(); run(); };
+    chip.appendChild(x);
+    $("chips").insertBefore(chip, $("ing"));
+  });
+}
+
+function addItem(name) {
+  name = (name || "").trim().replace(/,$/, "");
+  if (name && !pantry.includes(name)) pantry.push(name);
+  $("ing").value = "";
+  hideSuggest();
+  renderChips();
+}
+
+// People type and paste comma-separated lists, so commit a chip on every
+// separator rather than only on Enter.
+function commitSeparated() {
+  const raw = $("ing").value;
+  if (!/[,;\n]/.test(raw)) return false;
+  const parts = raw.split(/[,;\n]/);
+  const tail = parts.pop();
+  parts.forEach(p => { const t = p.trim(); if (t && !pantry.includes(t)) pantry.push(t); });
+  $("ing").value = tail.trim();
+  renderChips();
+  return true;
+}
+
+// --- autocomplete ---------------------------------------------------------
+
+function hideSuggest() { $("suggest").hidden = true; cursor = -1; }
+
+async function suggest() {
+  const q = $("ing").value.trim();
+  if (q.length < 2) return hideSuggest();
+  const items = await fetch("/api/suggest?q=" + encodeURIComponent(q))
+    .then(r => r.json()).catch(() => []);
+  if (!items.length) return hideSuggest();
+
+  const box = $("suggest");
+  box.innerHTML = "";
+  items.forEach((item) => {
+    const row = document.createElement("div");
+    row.innerHTML = `<span>${item.name}</span><small>${item.recipes.toLocaleString()}</small>`;
+    row.onmousedown = (e) => { e.preventDefault(); addItem(item.name); run(); };
+    box.appendChild(row);
+  });
+  box.hidden = false;
+}
+
+$("ing").addEventListener("input", () => {
+  if (commitSeparated()) { hideSuggest(); run(); return; }
+  suggest();
+});
+$("ing").addEventListener("paste", () => setTimeout(() => {
+  if (commitSeparated()) { hideSuggest(); run(); }
+}, 0));
+$("ing").addEventListener("blur", () => setTimeout(hideSuggest, 120));
+$("ing").addEventListener("keydown", (e) => {
+  const rows = [...$("suggest").querySelectorAll("div")];
+  if (e.key === "Enter" || e.key === "Tab") {
+    if (e.key === "Tab" && !$("ing").value.trim()) return;
+    e.preventDefault();
+    if (cursor >= 0 && rows[cursor]) rows[cursor].onmousedown(e);
+    else { addItem($("ing").value); run(); }
+  } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    if (!rows.length) return;
+    e.preventDefault();
+    cursor = (cursor + (e.key === "ArrowDown" ? 1 : -1) + rows.length) % rows.length;
+    rows.forEach((r, i) => r.setAttribute("aria-selected", i === cursor));
+  } else if (e.key === "Escape") {
+    hideSuggest();
+  } else if (e.key === "Backspace" && !$("ing").value && pantry.length) {
+    pantry.pop(); renderChips(); run();
+  }
+});
+
+// --- controls -------------------------------------------------------------
+
+function minutes() { return +$("time").value || null; }
+
+$("time").addEventListener("input", () => {
+  const v = minutes();
+  $("timeLabel").textContent = !v ? "any"
+    : v < 60 ? v + " min"
+    : (v % 60 ? Math.floor(v / 60) + "h " + (v % 60) + "m" : v / 60 + "h");
+});
+$("missing").addEventListener("input", () => {
+  const v = +$("missing").value;
+  $("missLabel").textContent = v === 0 ? "nothing" : v + (v === 1 ? " thing" : " things");
+});
+["time", "missing", "sort", "noWait", "cuisine", "strict"].forEach(id =>
+  $(id).addEventListener("change", run));
+["text", "title", "author", "book"].forEach(id =>
+  $(id).addEventListener("keydown", e => { if (e.key === "Enter") run(); }));
+$("go").onclick = run;
+$("clear").onclick = () => {
+  pantry = []; meals.clear(); diets.clear(); avoid.clear();
+  $("cuisine").value = ""; $("strict").checked = false;
+  $("title").value = ""; $("author").value = ""; $("book").value = "";
+  document.querySelectorAll(".pills button").forEach(b => b.setAttribute("aria-pressed", "false"));
+  updateAvoidNote();
+  $("text").value = ""; $("time").value = 0; $("missing").value = 3;
+  $("time").dispatchEvent(new Event("input"));
+  $("missing").dispatchEvent(new Event("input"));
+  renderChips(); $("results").innerHTML = ""; $("msg").textContent = "";
+};
+
+// --- search ---------------------------------------------------------------
+
+function fmtTime(m, estimate) {
+  if (m == null) return "time unknown";
+  const text = m < 60 ? m + " min"
+    : (m % 60 ? Math.floor(m / 60) + "h " + (m % 60) + "m" : m / 60 + "h");
+  return estimate ? "~" + text : text;
+}
+
+async function run() {
+  const body = {
+    have: pantry,
+    max_minutes: minutes(),
+    max_missing: +$("missing").value,
+    text: $("text").value,
+    title: $("title").value,
+    author: $("author").value,
+    book: $("book").value,
+    meals: [...meals],
+    cuisines: $("cuisine").value ? [$("cuisine").value] : [],
+    diets: [...diets],
+    free_from: [...avoid],
+    strict_diet: $("strict").checked,
+    sort: $("sort").value,
+    allow_long_wait: !$("noWait").checked,
+    limit: 40,
+  };
+  $("msg").textContent = "searching…";
+
+  let data;
+  try {
+    const res = await fetch("/api/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+    data = await res.json();
+  } catch (err) {
+    $("msg").textContent = "";
+    $("results").innerHTML = `<div class="empty">${err.message}</div>`;
+    return;
+  }
+
+  const notes = [];
+  if (data.unknown.length) notes.push(`not in your library: ${data.unknown.join(", ")}`);
+  if (data.relaxed_to != null)
+    notes.push(`nothing matched exactly, so this shows recipes needing up to ${data.relaxed_to} more items`);
+  if (data.duplicates_collapsed)
+    notes.push(`${data.duplicates_collapsed} duplicate${data.duplicates_collapsed > 1 ? "s" : ""} collapsed`);
+  $("msg").textContent = notes.join(" · ");
+
+  if (!data.results.length) {
+    $("results").innerHTML = `<div class="empty">No recipes matched.<br>
+      Try a longer time, more ingredients, or a bigger shopping list.</div>`;
+    return;
+  }
+  $("results").innerHTML = data.results.map(card).join("");
+}
+
+function card(r) {
+  const pct = Math.round(r.coverage * 100);
+  const badge = r.missing.length === 0
+    ? `<span class="badge ready">ready to cook</span>`
+    : `<span class="badge short">needs ${r.missing.length}</span>`;
+  const need = r.missing.length
+    ? `<div class="need">Shopping list: <b>${r.missing.map(m => m.display).join(", ")}</b></div>`
+    : `<div class="need">You have everything.</div>`;
+  const bits = [
+    fmtTime(r.total_minutes, r.time_is_estimate),
+    (r.meals || []).join(" / "),
+    r.cuisine || "",
+    (r.diets || []).filter(d => d !== "no red meat" && d !== "pescatarian").join(", "),
+    r.servings ? "serves " + r.servings : "",
+    r.book + (r.page ? ", p." + r.page : ""),
+    r.has_long_wait ? "needs a long rest" : "",
+  ].filter(Boolean);
+
+  const allergens = (r.allergens || []).length
+    ? `<div class="allergens">Contains: ${r.allergens.map(esc).join(", ")}</div>` : "";
+  const caveat = [
+    r.diet_caveats || "",
+    r.n_unknown ? `${r.n_unknown} ingredient${r.n_unknown > 1 ? "s" : ""} not recognised — allergen check is incomplete` : "",
+  ].filter(Boolean).join(" · ");
+
+  return `<div class="card">
+    <h3>${esc(r.title)} ${badge}</h3>
+    <div class="meta">${bits.map(b => `<span>${esc(b)}</span>`).join("")}</div>
+    <div class="bar"><i style="width:${pct}%"></i></div>
+    ${need}
+    ${allergens}
+    ${caveat ? `<div class="caveat">${esc(caveat)}</div>` : ""}
+    <div class="have-list">${r.n_matched} of ${r.n_core} main ingredients on hand</div>
+    <a class="open" target="_blank" rel="noopener"
+       href="/recipe/${r.id}?units=metric${pantry.length ? "&have=" + encodeURIComponent(pantry.join(",")) : ""}">
+      Open the recipe →</a>
+  </div>`;
+}
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g,
+    c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// --- boot -----------------------------------------------------------------
+
+fetch("/api/stats").then(r => r.json()).then(s => {
+  $("stats").textContent =
+    `${s.recipes.toLocaleString()} recipes from ${s.books.toLocaleString()} books · ` +
+    `${s.ingredients.toLocaleString()} ingredients`;
+  $("meals").innerHTML = (s.meals || []).map(m =>
+    `<button type="button" aria-pressed="false" data-m="${esc(m.name)}">${esc(m.name)}
+       <small>${m.recipes.toLocaleString()}</small></button>`).join("")
+    || `<span class="note">re-index to add meal tags</span>`;
+  $("meals").querySelectorAll("button").forEach(b => b.onclick = () => {
+    const on = b.getAttribute("aria-pressed") === "true";
+    b.setAttribute("aria-pressed", String(!on));
+    if (on) meals.delete(b.dataset.m); else meals.add(b.dataset.m);
+    run();
+  });
+
+  const pillRow = (host, items, set) => {
+    $(host).innerHTML = (items || []).map(i =>
+      `<button type="button" aria-pressed="false" data-v="${esc(i.name)}">${esc(i.name)}
+         <small>${i.recipes.toLocaleString()}</small></button>`).join("");
+    $(host).querySelectorAll("button").forEach(b => b.onclick = () => {
+      const on = b.getAttribute("aria-pressed") === "true";
+      b.setAttribute("aria-pressed", String(!on));
+      if (on) set.delete(b.dataset.v); else set.add(b.dataset.v);
+      updateAvoidNote();
+      run();
+    });
+  };
+  const options = (items) => (items || [])
+    .map(a => `<option value="${esc(a.name)}">${a.recipes.toLocaleString()} recipes</option>`)
+    .join("");
+  $("authorList").innerHTML = options(s.authors);
+  $("bookList").innerHTML = options(s.book_titles);
+
+  pillRow("diets", s.diets, diets);
+  pillRow("allergens", s.allergens, avoid);
+
+  $("cuisine").innerHTML = `<option value="">Any style</option>` +
+    (s.cuisines || []).map(c =>
+      `<option value="${esc(c.name)}">${esc(c.name)} (${c.recipes.toLocaleString()})</option>`
+    ).join("");
+
+  $("quick").innerHTML = (s.popular || []).slice(0, 14).map(p =>
+    `<button type="button" data-n="${esc(p.name)}">+ ${esc(p.name)}</button>`).join("");
+  $("quick").querySelectorAll("button").forEach(b =>
+    b.onclick = () => { addItem(b.dataset.n); run(); });
+}).catch(() => { $("stats").textContent = "no database yet — run: python -m pantry_chef index <folder>"; });
+
+function updateAvoidNote() {
+  // Strict mode only means anything once a diet or allergen filter is on.
+  const active = diets.size > 0 || avoid.size > 0;
+  $("strictWrap").hidden = !active;
+  $("avoidNote").textContent = avoid.size
+    ? `— hiding recipes containing ${[...avoid].join(", ")}` : "";
+}
+
+renderChips();
+updateAvoidNote();
+</script>
+</body>
+</html>
