@@ -1,5 +1,9 @@
 # podman compose up -d    (or: docker compose up -d)
 #
+# Note: `podman compose` is a shim and needs a provider installed separately
+# (podman-compose, or Docker's compose plugin). If you have neither, the plain
+# `podman run` commands in INSTALL.md do the same job and need nothing extra.
+#
 # Point BOOKS at wherever your cookbooks live, either by editing the default
 # below or by exporting it:  export BOOKS=~/Books/Cookbooks
 services:

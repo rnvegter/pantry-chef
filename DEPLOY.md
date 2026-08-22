@@ -124,9 +124,15 @@ Open **https://recipes.example.com** and it will ask for the password.
 
 ## Route B — container + Quadlet
 
-If you would rather not install Python on the server. Build the image first
-(see the container section of [INSTALL.md](INSTALL.md#d-podman-or-docker) — note
-that the image has not yet been built and tested).
+If you would rather not install Python on the server. Build the image first —
+see the container section of [INSTALL.md](INSTALL.md#d-podman-or-docker). The
+image is 257 MB and has been built and run against a real library.
+
+```bash
+podman build -t pantry-chef -f Containerfile .
+podman run --rm -v /srv/cookbooks:/books:ro -v pantry-chef-data:/data \
+  pantry-chef pantry-chef index /books
+```
 
 ```bash
 cp deploy/pantry-chef.container ~/.config/containers/systemd/
@@ -270,16 +276,21 @@ and API call would 404. Use a subdomain, or a dedicated host.
 Being straight about it, since this is infrastructure and a wrong instruction
 costs you an afternoon:
 
-**Verified.** The memory figures above were measured on the parser, not
-estimated. The application behind a reverse proxy — a proxy was put in front
-of it with the `Host` header rewritten and `X-Forwarded-*` set, and the pages,
-stylesheet, favicon, search API, recipe API and on-demand photo endpoint were
-all exercised through it. The single-worker constraint and the domain-root
-constraint were both confirmed by inspection of the code, not assumed.
+**Verified.** The container image — built on arm64, then used to index a real
+6-book library to 586 recipes with no failures, serve every page and endpoint,
+and extract recipe photographs live from a read-only book mount. The application
+behind a reverse proxy, with the `Host` header rewritten and `X-Forwarded-*`
+set: pages, stylesheet, favicon, search API, recipe API and the on-demand photo
+endpoint were all exercised through it. The memory figures above were measured
+on the parser rather than estimated. The single-worker and domain-root
+constraints were confirmed by reading the code, not assumed.
 
-**Not verified.** The `deploy/` files themselves. They were written on macOS,
-where there is no systemd, no Caddy and no nginx to run them against. They
-follow the documented syntax for each tool and are conventional in shape, but
-the first `systemctl start` is your test, not mine. `systemd-analyze verify
-/etc/systemd/system/pantry-chef.service`, `caddy validate` and `nginx -t` will
-each check their own file before you commit to it.
+**Not verified.** The `deploy/` files themselves — the systemd unit, the
+Caddyfile and the nginx config. They were written on macOS, which has no systemd,
+Caddy or nginx to run them against. They follow each tool's documented syntax and
+are conventional in shape, but the first `systemctl start` is your test, not
+mine. `systemd-analyze verify /etc/systemd/system/pantry-chef.service`,
+`caddy validate` and `nginx -t` will each check their own file before you commit
+to it. `podman compose` is likewise unexercised: it needs a compose provider
+installed separately, so the Quadlet and plain `podman run` paths are the tested
+ones.

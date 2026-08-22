@@ -28,16 +28,16 @@ you already work.
 | **[A. venv + pip](#a-venv--pip)** | most people; the default | tested end to end |
 | **[B. uv](#b-uv)** | you already use `uv` and want it fast | packaging verified, commands standard |
 | **[C. pipx](#c-pipx)** | you only want the `pantry-chef` command | packaging verified, commands standard |
-| **[D. Podman or Docker](#d-podman-or-docker)** | a home server or NAS, or isolation on Linux | image not yet built — see the note |
+| **[D. Podman or Docker](#d-podman-or-docker)** | a home server or NAS, or isolation on Linux | built and run: 257 MB, indexes and serves |
 
 Putting it on a server that stays on — with a reverse proxy, HTTPS and a
 password in front — is a different job, covered in **[DEPLOY.md](DEPLOY.md)**.
 
-On *status*: route A was installed from scratch and run end to end. B and C are
-thin wrappers over the same standard Python packaging, which was verified
-independently — a non-editable install into a clean environment serves the
-pages, static assets, API and recipe photos correctly. Route D has not been
-built; the note in that section says what that does and does not mean.
+On *status*: routes A and D were both run end to end — A installed from scratch,
+D built as an image and used to index and serve a real library. B and C are thin
+wrappers over the same standard Python packaging, which was verified
+independently: a non-editable install into a clean environment serves the pages,
+static assets, API and recipe photos correctly.
 
 Every route needs the source first:
 
@@ -150,13 +150,14 @@ Now go to [Index your cookbooks](#index-your-cookbooks).
 
 ## D. Podman or Docker
 
-> **Status: written, not yet built.** Podman was not installed on the machine
-> this was written on, so the image has never been assembled. The Python
-> packaging underneath it *is* verified — a non-editable install, which is
-> exactly what the image performs, serves the pages, static assets, API and
-> recipe photos correctly. What has not been exercised is the Linux layer: the
-> base image, the two apt libraries and the volume permissions. Treat the first
-> build as a trial.
+> **Status: built and run.** The image was built with Podman on arm64 and
+> exercised against a real library: it indexed 6 cookbooks to 586 recipes with
+> no failures, served every page and endpoint, and extracted recipe photographs
+> live from the read-only book mount. The image is **257 MB**.
+>
+> `podman compose` was not exercised, because it needs a compose provider
+> installed separately; the plain `podman run` commands below are the tested
+> path.
 
 A `Containerfile` and a `compose.yaml` are included. Podman and Docker both read
 them; the commands below use `podman`, and `docker` works identically.
