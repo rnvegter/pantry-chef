@@ -1,4 +1,4 @@
-# Pantry Chef
+<img src="pantry_chef/web/static/logo.svg" alt="Pantry Chef" height="44">
 
 Turn a shelf of digital cookbooks into a searchable database, then ask it the
 only question that matters on a weeknight: **what can I cook with what I have,
@@ -452,5 +452,6 @@ pantry_chef/
   search.py       pantry matching and ranking
   images.py       recipe photos, read from the book and cached
   cli.py          command line
-  web/            FastAPI app, search page and library page
+  web/            FastAPI app, search page, library page, recipe card
+    static/       stylesheet, pages, and the logo (mark, favicon, lockup)
 ```

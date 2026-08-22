@@ -435,5 +435,20 @@ def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
 
 
+class FreshStaticFiles(StaticFiles):
+    """Static files that are always revalidated.
+
+    The default caching left the browser serving a stale stylesheet after an
+    edit, which is confusing and, on a local app, buys nothing: these files come
+    off the same disk the browser is running on. `no-cache` still allows a 304,
+    so an unchanged file costs a request header and no body.
+    """
+
+    def file_response(self, *args, **kwargs) -> Response:
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 if STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    app.mount("/static", FreshStaticFiles(directory=STATIC_DIR), name="static")

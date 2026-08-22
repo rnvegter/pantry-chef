@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <title>Pantry Chef</title>
+  <!-- The favicon is a heavier, simpler cut of the mark: the lid line is
+       dropped and the strokes thickened, because at 16px the full drawing
+       silts up. It carries its own colours, since a favicon is loaded outside
+       the page and cannot see the page's CSS variables. -->
+  <style>
+    .vessel { stroke: #1c2118; }
+    .grow   { stroke: #4a7c3f; }
+    @media (prefers-color-scheme: dark) {
+      .vessel { stroke: #eef1e6; }
+      .grow   { stroke: #9ac97f; }
+    }
+  </style>
+  <g fill="none" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"
+     transform="translate(0 0.7)">
+    <g class="vessel">
+      <path d="M9 8.2V7a1.6 1.6 0 0 1 1.6-1.6h2.8A1.6 1.6 0 0 1 15 7v1.2"/>
+      <path d="M5.8 11.6a3.4 3.4 0 0 1 3.4-3.4h5.6a3.4 3.4 0 0 1 3.4 3.4v6.2A3.2 3.2 0 0 1 15 21H9a3.2 3.2 0 0 1-3.2-3.2z"/>
+    </g>
+    <g class="grow">
+      <path d="M12 5.4V2.4"/>
+      <path d="M12 4.6C10 4.6 8.4 3 8.4 1c2 0 3.6 1.6 3.6 3.6z"/>
+      <path d="M12 4.6c0-2 1.6-3.6 3.6-3.6 0 2-1.6 3.6-3.6 3.6z"/>
+    </g>
+  </g>
+</svg>
