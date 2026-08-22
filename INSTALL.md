@@ -30,6 +30,9 @@ you already work.
 | **[C. pipx](#c-pipx)** | you only want the `pantry-chef` command | packaging verified, commands standard |
 | **[D. Podman or Docker](#d-podman-or-docker)** | a home server or NAS, or isolation on Linux | image not yet built — see the note |
 
+Putting it on a server that stays on — with a reverse proxy, HTTPS and a
+password in front — is a different job, covered in **[DEPLOY.md](DEPLOY.md)**.
+
 On *status*: route A was installed from scratch and run end to end. B and C are
 thin wrappers over the same standard Python packaging, which was verified
 independently — a non-editable install into a clean environment serves the

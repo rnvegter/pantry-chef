@@ -1,0 +1,32 @@
+# Podman Quadlet: run the container as a systemd service.
+#
+#   cp deploy/pantry-chef.container ~/.config/containers/systemd/
+#   systemctl --user daemon-reload
+#   systemctl --user start pantry-chef
+#
+# For a system-wide service use /etc/containers/systemd/ and drop `--user`.
+
+[Unit]
+Description=Pantry Chef
+After=network-online.target
+
+[Container]
+Image=localhost/pantry-chef:latest
+ContainerName=pantry-chef
+
+# Loopback only: the reverse proxy is what should be reachable, not this.
+PublishPort=127.0.0.1:8077:8077
+
+# Your cookbooks, read-only. :Z is for SELinux systems; harmless elsewhere.
+Volume=/srv/cookbooks:/books:ro,Z
+
+# The index and photo cache.
+Volume=pantry-chef-data:/data
+Environment=PANTRY_CHEF_DB=/data/pantry-chef.db
+
+[Service]
+Restart=always
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,53 @@
+# Pantry Chef as a systemd service.
+#
+#   sudo cp deploy/pantry-chef.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now pantry-chef
+#
+# Adjust User, WorkingDirectory and the two paths to match your box.
+
+[Unit]
+Description=Pantry Chef — search a cookbook library by what is in your kitchen
+Documentation=https://github.com/rnvegter/pantry-chef
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=pantry
+Group=pantry
+WorkingDirectory=/opt/pantry-chef
+
+Environment=PANTRY_CHEF_DB=/var/lib/pantry-chef/pantry-chef.db
+
+# Bound to loopback on purpose. Pantry Chef has no authentication of its own,
+# so nothing but the reverse proxy in front of it should be able to reach it.
+ExecStart=/opt/pantry-chef/.venv/bin/pantry-chef serve --host 127.0.0.1 --port 8077
+
+Restart=on-failure
+RestartSec=5
+
+# --- hardening ------------------------------------------------------------
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=no
+
+# The database and photo cache are the only things it writes.
+ReadWritePaths=/var/lib/pantry-chef
+
+# Your cookbooks, read-only. It never modifies them.
+ReadOnlyPaths=/srv/cookbooks
+
+# If your books live under /home, replace this with ProtectHome=read-only.
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

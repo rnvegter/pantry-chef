@@ -1,0 +1,26 @@
+# Caddy in front of Pantry Chef. Certificates are obtained and renewed
+# automatically; there is nothing else to set up.
+#
+#   sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
+#   sudo systemctl reload caddy
+#
+# Generate the password hash with:  caddy hash-password
+
+recipes.example.com {
+	encode zstd gzip
+
+	# Pantry Chef has NO authentication of its own. Without this block, anyone
+	# who can reach this hostname can browse your entire library.
+	# On Caddy older than 2.8 the directive is spelled `basicauth`.
+	basic_auth {
+		niels $2a$14$REPLACE_WITH_THE_HASH_FROM_caddy_hash-password
+	}
+
+	reverse_proxy 127.0.0.1:8077 {
+		# Recipe photos are extracted from the books on first request, which
+		# can take a moment on a large scan.
+		transport http {
+			response_header_timeout 60s
+		}
+	}
+}
