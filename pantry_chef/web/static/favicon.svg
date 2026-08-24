@@ -1,27 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Pantry Chef">
   <title>Pantry Chef</title>
-  <!-- The favicon is a heavier, simpler cut of the mark: the lid line is
-       dropped and the strokes thickened, because at 16px the full drawing
-       silts up. It carries its own colours, since a favicon is loaded outside
-       the page and cannot see the page's CSS variables. -->
+  <!-- The favicon is a heavier cut of the same mark: the contents line is
+       dropped and the sprig thickened, because at 16px the line silts up and
+       the stem disappears. -->
   <style>
-    .vessel { stroke: #1c2118; }
-    .grow   { stroke: #4a7c3f; }
+    .tile { fill: #4a7c3f; }
+    .cut  { fill: #ffffff; }
     @media (prefers-color-scheme: dark) {
-      .vessel { stroke: #eef1e6; }
-      .grow   { stroke: #9ac97f; }
+      .tile { fill: #9ac97f; }
+      .cut  { fill: #13170f; }
     }
   </style>
-  <g fill="none" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"
-     transform="translate(0 0.7)">
-    <g class="vessel">
-      <path d="M9 8.2V7a1.6 1.6 0 0 1 1.6-1.6h2.8A1.6 1.6 0 0 1 15 7v1.2"/>
-      <path d="M5.8 11.6a3.4 3.4 0 0 1 3.4-3.4h5.6a3.4 3.4 0 0 1 3.4 3.4v6.2A3.2 3.2 0 0 1 15 21H9a3.2 3.2 0 0 1-3.2-3.2z"/>
-    </g>
-    <g class="grow">
-      <path d="M12 5.4V2.4"/>
-      <path d="M12 4.6C10 4.6 8.4 3 8.4 1c2 0 3.6 1.6 3.6 3.6z"/>
-      <path d="M12 4.6c0-2 1.6-3.6 3.6-3.6 0 2-1.6 3.6-3.6 3.6z"/>
-    </g>
+  <rect class="tile" width="64" height="64" rx="15"/>
+  <g transform="translate(0 1.6)">
+  <rect class="cut" x="21" y="17.4" width="22" height="5.2" rx="2.4"/>
+  <path class="cut" d="M24.6 22.6h14.8c2.2 2.8 4.1 4.8 4.1 8.4v12A6.6 6.6 0 0 1 36.9 49.6H27.1A6.6 6.6 0 0 1 20.5 43V31c0-3.6 1.9-5.6 4.1-8.4z"/>
+  <rect class="cut" x="30.40" y="8.6" width="3.2" height="9.4" rx="1.60"/>
+  <path class="cut" d="M31.6 12.6c-4.2-.4-7.3-4-6.9-8.2 4.2.4 7.3 4 6.9 8.2z"/>
+  <path class="cut" d="M32.4 12.6c-.4-4.2 2.7-7.8 6.9-8.2.4 4.2-2.7 7.8-6.9 8.2z"/>
   </g>
 </svg>
