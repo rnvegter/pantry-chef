@@ -25,6 +25,17 @@ from ..search import Query, get_recipe, search, suggest_ingredients
 
 STATIC_DIR = Path(__file__).parent / "static"
 
+# Pages are revalidated for the same reason the static files are: they are
+# read off local disk, so caching buys nothing and a stale copy costs an
+# afternoon of wondering why an edit did not appear.
+NO_CACHE = {"Cache-Control": "no-cache"}
+
+
+def _page(name: str) -> FileResponse:
+    return FileResponse(STATIC_DIR / name, headers=NO_CACHE)
+
+
+
 app = FastAPI(title="Pantry Chef", docs_url="/api/docs", redoc_url=None)
 
 
@@ -420,19 +431,19 @@ def api_cancel() -> JSONResponse:
 @app.get("/recipe/{recipe_id}")
 def recipe_page(recipe_id: int) -> FileResponse:
     """Serve the standalone recipe card; it fetches its own data."""
-    return FileResponse(STATIC_DIR / "recipe.html")
+    return _page("recipe.html")
 
 
 @app.get("/library")
 def library_page() -> FileResponse:
     """Serve the library management page."""
-    return FileResponse(STATIC_DIR / "library.html")
+    return _page("library.html")
 
 
 @app.get("/")
 def index() -> FileResponse:
     """Serve the single-page UI."""
-    return FileResponse(STATIC_DIR / "index.html")
+    return _page("index.html")
 
 
 class FreshStaticFiles(StaticFiles):

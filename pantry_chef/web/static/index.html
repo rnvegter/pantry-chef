@@ -7,6 +7,20 @@
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/app.css">
 <style>
+.tabs {
+  display: flex; gap: 2px; margin: -4px 0 20px;
+  border-bottom: 1px solid var(--line);
+}
+.tabs button {
+  background: none; border: 0; border-bottom: 2px solid transparent;
+  padding: 9px 15px; margin-bottom: -1px; font: inherit; font-weight: 600;
+  font-size: 14px; color: var(--muted); cursor: pointer;
+}
+.tabs button:hover { color: var(--ink); }
+.tabs button[aria-selected="true"] {
+  color: var(--accent); border-bottom-color: var(--accent);
+}
+
 .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 16px; margin-top: 16px; align-items: end; }
 .actions { display: flex; gap: 10px; margin-top: 16px; align-items: center; flex-wrap: wrap; }
@@ -126,16 +140,57 @@ a.open:hover { text-decoration: underline; }
   </header>
 
   <div class="panel">
-    <div class="combo">
-      <label for="ing">What have you got?</label>
-      <div class="chips" id="chips">
-        <input id="ing" autocomplete="off" placeholder="chicken thighs, garlic, lemon…"
-               aria-label="Add an ingredient">
-      </div>
-      <div class="suggest" id="suggest" hidden></div>
+    <div class="tabs" role="tablist" aria-label="How would you like to search?">
+      <button type="button" role="tab" id="tabIngredient" data-mode="ingredient"
+              aria-selected="true" aria-controls="panelIngredient">By ingredient</button>
+      <button type="button" role="tab" id="tabName" data-mode="name"
+              aria-selected="false" aria-controls="panelName">By name</button>
     </div>
-    <div class="quick" id="quick"></div>
 
+    <!-- Only the active tab's fields are sent, so a pantry left behind on the
+         other tab never quietly filters a search by name, or the reverse. -->
+    <div id="panelIngredient" role="tabpanel" aria-labelledby="tabIngredient">
+      <div class="combo">
+        <label for="ing">What have you got?</label>
+        <div class="chips" id="chips">
+          <input id="ing" autocomplete="off" placeholder="chicken thighs, garlic, lemon…"
+                 aria-label="Add an ingredient">
+        </div>
+        <div class="suggest" id="suggest" hidden></div>
+      </div>
+      <div class="quick" id="quick"></div>
+      <div class="controls">
+        <div>
+          <label for="missing">Willing to shop for <span class="value" id="missLabel">3</span></label>
+          <input type="range" id="missing" min="0" max="8" step="1" value="3">
+        </div>
+      </div>
+    </div>
+
+    <div id="panelName" role="tabpanel" aria-labelledby="tabName" hidden>
+      <div class="controls">
+        <div>
+          <label for="title">Recipe title</label>
+          <input type="text" id="title" placeholder="e.g. orange chicken">
+        </div>
+        <div>
+          <label for="author">Author</label>
+          <input type="text" id="author" list="authorList" placeholder="e.g. Ottolenghi">
+          <datalist id="authorList"></datalist>
+        </div>
+        <div>
+          <label for="book">Cookbook</label>
+          <input type="text" id="book" list="bookList" placeholder="e.g. Simple">
+          <datalist id="bookList"></datalist>
+        </div>
+        <div>
+          <label for="text">Anywhere in the recipe</label>
+          <input type="text" id="text" placeholder="e.g. traybake">
+        </div>
+      </div>
+    </div>
+
+    <!-- Filters below the tabs, because they narrow either kind of search. -->
     <div class="filters">
       <div>
         <label>Meal</label>
@@ -161,34 +216,12 @@ a.open:hover { text-decoration: underline; }
         <input type="range" id="time" min="0" max="180" step="5" value="0">
       </div>
       <div>
-        <label for="missing">Willing to shop for <span class="value" id="missLabel">3</span></label>
-        <input type="range" id="missing" min="0" max="8" step="1" value="3">
-      </div>
-      <div>
         <label for="sort">Order by</label>
         <select id="sort">
           <option value="best">Best match</option>
           <option value="quickest">Quickest first</option>
           <option value="coverage">Most complete</option>
         </select>
-      </div>
-      <div>
-        <label for="text">Also mentions</label>
-        <input type="text" id="text" placeholder="e.g. traybake">
-      </div>
-      <div>
-        <label for="title">Recipe title</label>
-        <input type="text" id="title" placeholder="e.g. orange chicken">
-      </div>
-      <div>
-        <label for="author">Author</label>
-        <input type="text" id="author" list="authorList" placeholder="e.g. Ottolenghi">
-        <datalist id="authorList"></datalist>
-      </div>
-      <div>
-        <label for="book">Cookbook</label>
-        <input type="text" id="book" list="bookList" placeholder="e.g. Simple">
-        <datalist id="bookList"></datalist>
       </div>
     </div>
 
@@ -212,6 +245,8 @@ a.open:hover { text-decoration: underline; }
 
 <script>
 const $ = (id) => document.getElementById(id);
+// "ingredient" = what can I cook with what I have; "name" = find that recipe.
+let mode = "ingredient";
 let pantry = [];
 let meals = new Set();
 let diets = new Set();
@@ -335,6 +370,7 @@ $("clear").onclick = () => {
   $("time").dispatchEvent(new Event("input"));
   $("missing").dispatchEvent(new Event("input"));
   renderChips(); $("results").innerHTML = ""; $("msg").textContent = "";
+  setMode("ingredient");
 };
 
 // --- search ---------------------------------------------------------------
@@ -347,14 +383,18 @@ function fmtTime(m, estimate) {
 }
 
 async function run() {
+  // Values on the inactive tab are kept, so switching back restores them, but
+  // they are not sent: a forgotten pantry must never quietly narrow a search
+  // by name, nor an old author narrow a search by ingredient.
+  const byName = mode === "name";
   const body = {
-    have: pantry,
+    have: byName ? [] : pantry,
     max_minutes: minutes(),
-    max_missing: +$("missing").value,
-    text: $("text").value,
-    title: $("title").value,
-    author: $("author").value,
-    book: $("book").value,
+    max_missing: byName ? 99 : +$("missing").value,
+    text: byName ? $("text").value : "",
+    title: byName ? $("title").value : "",
+    author: byName ? $("author").value : "",
+    book: byName ? $("book").value : "",
     meals: [...meals],
     cuisines: $("cuisine").value ? [$("cuisine").value] : [],
     diets: [...diets],
@@ -390,21 +430,33 @@ async function run() {
   $("msg").textContent = notes.join(" · ");
 
   if (!data.results.length) {
-    $("results").innerHTML = `<div class="empty">No recipes matched.<br>
-      Try a longer time, more ingredients, or a bigger shopping list.</div>`;
+    $("results").innerHTML = `<div class="empty">No recipes matched.<br>${
+      mode === "name"
+        ? "Try fewer words, a different spelling, or check the Library page for which books are indexed."
+        : "Try a longer time, more ingredients, or a bigger shopping list."
+    }</div>`;
     return;
   }
   $("results").innerHTML = data.results.map(card).join("");
 }
 
 function card(r) {
+  // Searching by name says nothing about what is in your kitchen, so the
+  // coverage furniture — "needs 6", the bar, "0 of 6 on hand" — is noise
+  // there. The ingredient list is still worth showing, just not as a verdict.
+  const byName = mode === "name";
   const pct = Math.round(r.coverage * 100);
-  const badge = r.missing.length === 0
-    ? `<span class="badge ready">ready to cook</span>`
-    : `<span class="badge short">needs ${r.missing.length}</span>`;
-  const need = r.missing.length
-    ? `<div class="need">Shopping list: <b>${r.missing.map(m => m.display).join(", ")}</b></div>`
-    : `<div class="need">You have everything.</div>`;
+  const badge = byName ? ""
+    : r.missing.length === 0
+      ? `<span class="badge ready">ready to cook</span>`
+      : `<span class="badge short">needs ${r.missing.length}</span>`;
+  const need = byName
+    ? (r.ingredients || []).length
+      ? `<div class="need">Ingredients: <b>${r.ingredients.map(m => m.display).join(", ")}</b></div>`
+      : ""
+    : r.missing.length
+      ? `<div class="need">Shopping list: <b>${r.missing.map(m => m.display).join(", ")}</b></div>`
+      : `<div class="need">You have everything.</div>`;
   const bits = [
     fmtTime(r.total_minutes, r.time_is_estimate),
     (r.meals || []).join(" / "),
@@ -425,11 +477,11 @@ function card(r) {
   return `<div class="card">
     <h3>${esc(r.title)} ${badge}</h3>
     <div class="meta">${bits.map(b => `<span>${esc(b)}</span>`).join("")}</div>
-    <div class="bar"><i style="width:${pct}%"></i></div>
+    ${byName ? "" : `<div class="bar"><i style="width:${pct}%"></i></div>`}
     ${need}
     ${allergens}
     ${caveat ? `<div class="caveat">${esc(caveat)}</div>` : ""}
-    <div class="have-list">${r.n_matched} of ${r.n_core} main ingredients on hand</div>
+    ${byName ? "" : `<div class="have-list">${r.n_matched} of ${r.n_core} main ingredients on hand</div>`}
     <a class="open" target="_blank" rel="noopener"
        href="/recipe/${r.id}?units=metric${pantry.length ? "&have=" + encodeURIComponent(pantry.join(",")) : ""}">
       Open the recipe →</a>
@@ -489,6 +541,31 @@ fetch("/api/stats").then(r => r.json()).then(s => {
   $("quick").querySelectorAll("button").forEach(b =>
     b.onclick = () => { addItem(b.dataset.n); run(); });
 }).catch(() => { $("stats").textContent = "no database yet — run: python -m pantry_chef index <folder>"; });
+
+function setMode(next) {
+  mode = next;
+  document.querySelectorAll(".tabs button").forEach(b =>
+    b.setAttribute("aria-selected", String(b.dataset.mode === next)));
+  $("panelIngredient").hidden = next !== "ingredient";
+  $("panelName").hidden = next !== "name";
+
+  // Searching by name with nothing typed would list the whole library, which
+  // is not what an empty box means. Wait for input instead.
+  const hasNameQuery = ["title", "author", "book", "text"].some(id => $(id).value.trim());
+  if (next === "name" && !hasNameQuery) {
+    $("results").innerHTML = "";
+    $("msg").textContent = "";
+    $("title").focus();
+    return;
+  }
+  if (next === "ingredient" && !pantry.length) {
+    $("ing").focus();
+  }
+  run();
+}
+
+document.querySelectorAll(".tabs button").forEach(b =>
+  b.onclick = () => setMode(b.dataset.mode));
 
 function updateAvoidNote() {
   // Strict mode only means anything once a diet or allergen filter is on.
