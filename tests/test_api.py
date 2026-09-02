@@ -232,6 +232,41 @@ def test_photo_for_an_unknown_recipe_is_404(client):
     assert client.get("/api/recipe/999999/image").status_code == 404
 
 
+# --- facet counts on the filter buttons -------------------------------------
+
+def test_search_returns_facets(client):
+    data = client.post("/api/search", json={}).json()
+    assert set(data["facets"]) == {"meal", "cuisine", "diet", "allergen"}
+    assert data["facets"]["meal"]
+
+
+def test_facets_track_the_filters(client):
+    plain = client.post("/api/search", json={}).json()["facets"]["meal"]
+    italian = client.post(
+        "/api/search", json={"cuisines": ["italian"]}).json()["facets"]["meal"]
+    assert sum(italian.values()) < sum(plain.values())
+
+
+def test_facets_follow_a_relaxed_search(client):
+    """When nothing matches exactly the search widens the tolerance and returns
+    the wider set. Counting the original query would report zero of everything
+    underneath a page full of results."""
+    data = client.post("/api/search", json={
+        "have": ["linguine"], "max_missing": 0, "max_minutes": 10}).json()
+    if data.get("relaxed_to") is None:
+        pytest.skip("this query did not need relaxing")
+    assert data["results"]
+    assert sum(data["facets"]["meal"].values()) > 0
+
+
+def test_facet_counts_agree_with_filtering_by_them(client):
+    facets = client.post("/api/search", json={}).json()["facets"]
+    for meal, expected in facets["meal"].items():
+        got = client.post("/api/search", json={"meals": [meal], "limit": 200}).json()
+        # The listing collapses duplicate dishes; the facet counts recipes.
+        assert len(got["results"]) + got["duplicates_collapsed"] == expected, meal
+
+
 # --- autocomplete -----------------------------------------------------------
 
 def test_complete_endpoint_per_field(client):

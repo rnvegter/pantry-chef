@@ -7,6 +7,7 @@ are per-request and read-only, so the app can stay up while a re-index runs.
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import replace
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query as Q
@@ -21,7 +22,9 @@ from ..jobs import diagnose, diagnose_empty, inspect_folder, list_directories, m
 from ..models import display_title, split_steps
 from ..parse.classify import difficulty
 from ..parse.metric import convert_text, to_metric_line
-from ..search import Query, get_recipe, search, suggest_ingredients
+from ..search import (
+    Query, facet_counts, get_recipe, search, suggest_ingredients,
+)
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -141,7 +144,7 @@ def api_search(request: SearchRequest) -> JSONResponse:
     """Rank recipes against a pantry and a time budget."""
     conn = get_conn()
     try:
-        results, info = search(conn, Query(
+        query = Query(
             have=request.have,
             max_minutes=request.max_minutes,
             max_missing=request.max_missing,
@@ -160,9 +163,21 @@ def api_search(request: SearchRequest) -> JSONResponse:
             allow_long_wait=request.allow_long_wait,
             limit=max(1, min(request.limit, 200)),
             offset=max(0, request.offset),
-        ))
+        )
+        results, info = search(conn, query)
+
+        # Facets describe what is on screen, so they are counted against the
+        # query that actually produced these results. When nothing matched
+        # exactly the search widens the shopping-list tolerance and returns the
+        # wider set; counting the original query would then report zero of
+        # everything underneath a page full of results.
+        effective = query
+        if info.get("relaxed_to") is not None:
+            effective = replace(query, max_missing=info["relaxed_to"])
+
         return JSONResponse({
             "results": [_result_json(r) for r in results],
+            "facets": facet_counts(conn, effective),
             "pantry": info["pantry"],
             "unknown": info["unknown"],
             "relaxed_to": info.get("relaxed_to"),

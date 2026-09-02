@@ -178,8 +178,14 @@ def search(conn: sqlite3.Connection, query: Query) -> tuple[list[SearchResult], 
     return results, info
 
 
-def _search_once(conn: sqlite3.Connection, query: Query) -> tuple[list[SearchResult], dict]:
-    """One pass of the search at exactly the tolerance asked for."""
+def _build_filters(conn: sqlite3.Connection, query: Query,
+                   skip_facet: str | None = None) -> tuple[str, list[str], list[object], dict, dict]:
+    """Assemble the FROM clause, WHERE fragments and parameters for a query.
+
+    `skip_facet` leaves out one facet kind's own filter. Counting facets needs
+    that: the number beside "Lunch" has to be counted with the meal selection
+    removed, or the button would only ever report the meals already chosen.
+    """
     pantry = normalise_pantry(query.have)
     pantry_ids, unknown = _expand_ids(conn, pantry, query.expand)
     excluded = normalise_pantry(query.without)
@@ -238,7 +244,7 @@ def _search_once(conn: sqlite3.Connection, query: Query) -> tuple[list[SearchRes
     # brunch, but Italian only".
     for kind, values in (("meal", query.meals), ("cuisine", query.cuisines)):
         wanted = [v.strip().lower() for v in values if v and v.strip()]
-        if not wanted:
+        if not wanted or kind == skip_facet:
             continue
         where.append(
             f"""EXISTS (SELECT 1 FROM recipe_tags t WHERE t.recipe_id = r.id
@@ -248,7 +254,8 @@ def _search_once(conn: sqlite3.Connection, query: Query) -> tuple[list[SearchRes
         params.extend(wanted)
 
     # Diets are ANDed: "vegetarian" plus "no red meat" must both hold.
-    for diet in {d.strip().lower() for d in query.diets if d and d.strip()}:
+    for diet in ({} if skip_facet == "diet"
+                 else {d.strip().lower() for d in query.diets if d and d.strip()}):
         where.append(
             """EXISTS (SELECT 1 FROM recipe_tags t WHERE t.recipe_id = r.id
                 AND t.kind = 'diet' AND t.value = ?)"""
@@ -258,7 +265,8 @@ def _search_once(conn: sqlite3.Connection, query: Query) -> tuple[list[SearchRes
     # Allergen exclusion is the one filter where a false negative matters, so
     # it is a plain NOT EXISTS over positively-detected allergens, optionally
     # backed by strict mode below.
-    free_from = {a.strip().lower() for a in query.free_from if a and a.strip()}
+    free_from = ({} if skip_facet == "allergen"
+                 else {a.strip().lower() for a in query.free_from if a and a.strip()})
     if free_from:
         where.append(
             f"""NOT EXISTS (SELECT 1 FROM recipe_tags t WHERE t.recipe_id = r.id
@@ -303,6 +311,64 @@ def _search_once(conn: sqlite3.Connection, query: Query) -> tuple[list[SearchRes
                   AND x.ingredient_id IN ({_placeholders(len(excluded_ids))}))"""
         )
         params.extend(excluded_ids.keys())
+
+    return sql, where, params, info, pantry_ids
+
+
+FACET_KINDS = ("meal", "cuisine", "diet", "allergen")
+
+
+def facet_counts(conn: sqlite3.Connection, query: Query) -> dict[str, dict[str, int]]:
+    """How many recipes sit under each facet value, for the search as it stands.
+
+    The numbers on the filter buttons are only useful if they describe what is
+    actually in front of you: with an Italian filter on, "Lunch" should say how
+    many Italian lunches there are, not how many lunches the library holds.
+
+    Each facet is counted with its own filter removed, which is what makes the
+    buttons usable — a meal count computed through the meal filter could only
+    ever report the meals already chosen. Facets with nothing selected all
+    share a single pass, so this is usually one query and never more than four.
+    """
+    counts: dict[str, dict[str, int]] = {kind: {} for kind in FACET_KINDS}
+
+    selected = {
+        "meal": [v for v in query.meals if v and v.strip()],
+        "cuisine": [v for v in query.cuisines if v and v.strip()],
+        "diet": [v for v in query.diets if v and v.strip()],
+        "allergen": [v for v in query.free_from if v and v.strip()],
+    }
+
+    passes: dict[str | None, list[str]] = {
+        None: [k for k in FACET_KINDS if not selected[k]]
+    }
+    for kind in FACET_KINDS:
+        if selected[kind]:
+            passes[kind] = [kind]
+
+    for skip, kinds in passes.items():
+        if not kinds:
+            continue
+        sql, where, params, _info, _ids = _build_filters(conn, query, skip_facet=skip)
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        rows = conn.execute(
+            f"""SELECT t.kind AS kind, t.value AS value, COUNT(*) AS n
+                FROM ({sql}) sub
+                JOIN recipe_tags t ON t.recipe_id = sub.id
+                WHERE t.kind IN ({_placeholders(len(kinds))})
+                GROUP BY t.kind, t.value""",
+            (*params, *kinds),
+        ).fetchall()
+        for row in rows:
+            counts[row["kind"]][row["value"]] = int(row["n"])
+
+    return counts
+
+
+def _search_once(conn: sqlite3.Connection, query: Query) -> tuple[list[SearchResult], dict]:
+    """One pass of the search at exactly the tolerance asked for."""
+    sql, where, params, info, pantry_ids = _build_filters(conn, query)
 
     if where:
         sql += " WHERE " + " AND ".join(where)

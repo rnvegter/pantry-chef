@@ -116,6 +116,10 @@
   background: var(--accent); border-color: var(--accent);
   color: var(--on-accent); font-weight: 600;
 }
+.pills button.empty { opacity: .42; }
+.pills button.empty small { text-decoration: line-through; }
+#cuisine option.empty { color: var(--muted); }
+
 .pills.avoid button[aria-pressed="true"] {
   background: var(--bad); border-color: var(--bad); color: var(--on-bad);
 }
@@ -566,6 +570,7 @@ async function run() {
   if (data.duplicates_collapsed)
     notes.push(`${data.duplicates_collapsed} duplicate${data.duplicates_collapsed > 1 ? "s" : ""} collapsed`);
   $("msg").textContent = notes.join(" · ");
+  applyFacets(data.facets);
 
   if (!data.results.length) {
     $("results").innerHTML = `<div class="empty">No recipes matched.<br>${
@@ -665,7 +670,7 @@ fetch("/api/stats").then(r => r.json()).then(s => {
 
   $("cuisine").innerHTML = `<option value="">Any style</option>` +
     (s.cuisines || []).map(c =>
-      `<option value="${esc(c.name)}">${esc(c.name)} (${c.recipes.toLocaleString()})</option>`
+      `<option value="${esc(c.name)}" data-name="${esc(c.name)}">${esc(c.name)} (${c.recipes.toLocaleString()})</option>`
     ).join("");
 
   $("quick").innerHTML = (s.popular || []).slice(0, 14).map(p =>
@@ -673,6 +678,35 @@ fetch("/api/stats").then(r => r.json()).then(s => {
   $("quick").querySelectorAll("button").forEach(b =>
     b.onclick = () => { addItem(b.dataset.n); run(); });
 }).catch(() => { $("stats").textContent = "no database yet — run: python -m pantry_chef index <folder>"; });
+
+// The number on a filter button is only useful if it describes what is in
+// front of you: with an Italian filter on, "Lunch" should say how many Italian
+// lunches there are. Every search returns facet counts for exactly that, each
+// one counted with its own filter removed so a button can still tell you what
+// selecting it would give.
+function applyFacets(facets) {
+  if (!facets) return;
+  const paint = (host, kind, attr) => {
+    $(host).querySelectorAll("button").forEach(b => {
+      const n = (facets[kind] || {})[b.dataset[attr]] ?? 0;
+      const small = b.querySelector("small");
+      if (small) small.textContent = n.toLocaleString();
+      // Nothing behind it: still selectable, so you can see it is empty rather
+      // than wonder where it went, but visibly spent.
+      b.classList.toggle("empty", n === 0 && b.getAttribute("aria-pressed") !== "true");
+    });
+  };
+  paint("meals", "meal", "m");
+  paint("diets", "diet", "v");
+  paint("allergens", "allergen", "v");
+
+  [...$("cuisine").options].forEach(o => {
+    if (!o.value) return;
+    const n = (facets.cuisine || {})[o.dataset.name] ?? 0;
+    o.textContent = `${o.dataset.name} (${n.toLocaleString()})`;
+    o.classList.toggle("empty", n === 0);
+  });
+}
 
 function setMode(next) {
   mode = next;

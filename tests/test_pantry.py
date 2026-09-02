@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -36,7 +37,9 @@ from pantry_chef.parse.ingredients import (                                # noq
 from pantry_chef.parse.quantities import parse_quantity                    # noqa: E402
 from pantry_chef.parse.segment import find_recipes                         # noqa: E402
 from pantry_chef.parse.timing import extract_time                          # noqa: E402
-from pantry_chef.search import Query, get_recipe, search, suggest_ingredients  # noqa: E402
+from pantry_chef.search import (                                      # noqa: E402
+    Query, facet_counts, get_recipe, search, suggest_ingredients,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 EXPECTED_TITLES = [
@@ -1141,3 +1144,65 @@ def test_a_yield_line_is_never_taken_as_a_title():
 
     for text in ("Lemon and Garlic Roast Chicken", "Dough", "Chocolate Baklava"):
         assert _looks_like_title(Block(text=text, kind=HEADING, level=2)), text
+
+
+# --- facet counts -----------------------------------------------------------
+
+def test_facet_counts_cover_every_kind(indexed_db):
+    conn = connect(indexed_db, read_only=True)
+    facets = facet_counts(conn, Query())
+    assert set(facets) == {"meal", "cuisine", "diet", "allergen"}
+    assert facets["meal"], "the library has meal tags"
+
+
+def test_facet_counts_narrow_with_the_filters(indexed_db):
+    """The number on a button has to describe what is in front of you: with a
+    cuisine chosen, "lunch" means lunches of that cuisine."""
+    conn = connect(indexed_db, read_only=True)
+    everything = facet_counts(conn, Query())["meal"]
+    italian = facet_counts(conn, Query(cuisines=["italian"]))["meal"]
+
+    assert italian, "the fixture has an Italian recipe"
+    for meal, n in italian.items():
+        assert n <= everything.get(meal, 0)
+    assert sum(italian.values()) < sum(everything.values())
+
+
+def test_a_facet_is_counted_with_its_own_filter_removed(indexed_db):
+    """Otherwise a meal button could only ever report the meals already
+    chosen, and there would be no way to see what switching would give."""
+    conn = connect(indexed_db, read_only=True)
+    unfiltered = facet_counts(conn, Query())["meal"]
+    with_lunch = facet_counts(conn, Query(meals=["lunch"]))["meal"]
+    assert with_lunch == unfiltered
+
+    # A filter of a *different* kind does narrow it.
+    with_diet = facet_counts(conn, Query(diets=["vegetarian"]))["meal"]
+    assert sum(with_diet.values()) < sum(unfiltered.values())
+
+
+def test_allergen_facets_ignore_the_allergen_exclusion(indexed_db):
+    # The count beside "gluten" is what avoiding it would cost, so it must be
+    # counted without that exclusion already applied.
+    conn = connect(indexed_db, read_only=True)
+    plain = facet_counts(conn, Query())["allergen"]
+    avoiding = facet_counts(conn, Query(free_from=["gluten"]))["allergen"]
+    assert avoiding.get("gluten") == plain.get("gluten")
+
+
+def test_facet_counts_respect_the_pantry(indexed_db):
+    conn = connect(indexed_db, read_only=True)
+    everything = facet_counts(conn, Query())["meal"]
+    narrow = facet_counts(
+        conn, Query(have=["linguine"], max_missing=0))["meal"]
+    assert sum(narrow.values()) < sum(everything.values())
+
+
+def test_facet_counts_match_the_results_they_describe(indexed_db):
+    """A count is only true if filtering by it returns that many recipes."""
+    conn = connect(indexed_db, read_only=True)
+    base = Query(diets=["vegetarian"], limit=200)
+    for meal, expected in facet_counts(conn, base)["meal"].items():
+        results, _info = search(
+            conn, replace(base, meals=[meal], dedupe=False, auto_relax=False))
+        assert len(results) == expected, meal
