@@ -28,16 +28,18 @@ you already work.
 | **[A. venv + pip](#a-venv--pip)** | most people; the default | tested end to end |
 | **[B. uv](#b-uv)** | you already use `uv` and want it fast | packaging verified, commands standard |
 | **[C. pipx](#c-pipx)** | you only want the `pantry-chef` command | packaging verified, commands standard |
-| **[D. Podman or Docker](#d-podman-or-docker)** | a home server or NAS, or isolation on Linux | built and run: 257 MB, indexes and serves |
+| **[D. Docker](#d-docker)** | Docker is already there, or you want no Python on the machine | image built and run: 257 MB; Docker CLI itself untested |
+| **[E. Podman](#e-podman)** | you want the container rootless and daemon-free | built and run end to end |
 
 Putting it on a server that stays on — with a reverse proxy, HTTPS and a
 password in front — is a different job, covered in **[DEPLOY.md](DEPLOY.md)**.
 
-On *status*: routes A and D were both run end to end — A installed from scratch,
-D built as an image and used to index and serve a real library. B and C are thin
-wrappers over the same standard Python packaging, which was verified
-independently: a non-editable install into a clean environment serves the pages,
-static assets, API and recipe photos correctly.
+On *status*: routes A and E were both run end to end — A installed from scratch,
+E built as an image and used to index and serve a real library. D uses that same
+image and the same compose file, which were exercised, but through Podman rather
+than Docker. B and C are thin wrappers over the same standard Python packaging,
+verified independently: a non-editable install into a clean environment serves
+the pages, static assets, API and recipe photos correctly.
 
 Every route needs the source first:
 
@@ -148,43 +150,218 @@ Now go to [Index your cookbooks](#index-your-cookbooks).
 
 ---
 
-## D. Podman or Docker
+## D. Docker
 
-> **Status: built and run.** The image was built with Podman on arm64 and
-> exercised against a real library: it indexed 6 cookbooks to 586 recipes with
-> no failures, served every page and endpoint, and extracted recipe photographs
-> live from the read-only book mount. The image is **257 MB**.
+Everything below is copy-paste in order. Docker runs the app in a container, so
+Python is never installed on your machine.
+
+> **Status.** Everything from step D3 onwards was exercised against this exact
+> `compose.yaml` — the `.env` file supplying `BOOKS`, the read-only book mount
+> (a write into `/books` is refused), `run … index` putting 586 recipes where
+> the running service reads them, and `ps` / `restart` / `stop` / `up` / `down`
+> behaving as described, with the index surviving a stop and a `down`.
 >
-> Compose was exercised too, with `podman-compose` against the same
-> `compose.yaml` that Docker reads. Docker itself was not run — there is none on
-> the machine this was written on.
+> That was run with `podman-compose`, which reads the same file. **The `docker`
+> CLI itself was not run**: this was written on a machine with Podman and no
+> Docker, so step D1 and the exact `docker` spellings are from the documentation
+> rather than from a terminal. `docker compose config` validates the file before
+> you start anything.
 
-A `Containerfile` and a `compose.yaml` are included. Podman and Docker both read
-them; the commands below use `podman`, and `docker` works identically. To put
-this on a server rather than your own machine — with a reverse proxy, HTTPS and
-a password in front — see **[DEPLOY.md](DEPLOY.md)**, which has a route written
-out in full for each platform.
+### D1. Install Docker
 
-### First, pick one home and stay there
-
-**The database records where each book lives.** Index inside the container and
-the paths are `/books/…`; index on the host and they are `/Users/you/…`. Those
-paths are what recipe photos are read from at display time, so a database built
-in one place will show no photos in the other, and re-indexing will treat every
-book as new.
-
-Choose the container *or* the host, and keep to it. Switching costs one
-`index --force` to rewrite the paths.
-
-### Build
+**macOS**
 
 ```bash
+brew install --cask docker
+open -a Docker
+```
+
+Wait for the whale icon in the menu bar to stop animating, then check it:
+
+```bash
+docker --version && docker compose version
+```
+
+**Linux (Debian, Ubuntu, Fedora)**
+
+```bash
+curl -fsSL https://get.docker.com | sudo sh
+sudo systemctl enable --now docker
+sudo usermod -aG docker $USER
+```
+
+Log out and back in for the group change to apply, then check it:
+
+```bash
+docker --version && docker compose version
+```
+
+> Adding yourself to the `docker` group grants root-equivalent access to that
+> machine. On a shared box, either keep using `sudo docker`, or use
+> [route E](#e-podman), which is rootless.
+
+**Windows** — install
+[Docker Desktop](https://www.docker.com/products/docker-desktop/) with the WSL 2
+backend, then run the commands below from a WSL terminal.
+
+Compose v2 ships with all of these, so the command is `docker compose`, with a
+space — not the older `docker-compose`.
+
+### D2. Get the app
+
+```bash
+git clone https://github.com/rnvegter/pantry-chef.git
+cd pantry-chef
+```
+
+### D3. Tell it where your cookbooks are
+
+```bash
+echo "BOOKS=$HOME/Books/Cookbooks" > .env
+```
+
+`compose.yaml` reads `BOOKS` and mounts that folder read-only. A `.env` file
+beside it is picked up automatically, so you never have to export it.
+
+> **macOS and Windows:** Docker runs Linux in a VM, and only shared paths reach
+> it. Your home directory is shared by default; if your books live somewhere
+> else — an external drive, say — add that path in Docker Desktop under
+> *Settings → Resources → File sharing* first.
+
+### D4. Build and start it
+
+```bash
+docker compose up -d
+```
+
+The first run builds the image, which takes well under a minute. Check it came
+up:
+
+```bash
+docker compose ps
+```
+
+### D5. Build the index
+
+**Do this through Compose, not with a bare `docker run`.** Compose prefixes
+volume names with the project directory, so the running service reads
+`pantry-chef_pantry-chef-data`; a bare `docker run -v pantry-chef-data:/data`
+would write to a *different* volume and the app would report no database at all.
+
+```bash
+docker compose run --rm pantry-chef pantry-chef index /books
+```
+
+This is the slow part, and you only do it once — roughly 150 ms per book. Check
+the result:
+
+```bash
+docker compose run --rm pantry-chef pantry-chef stats
+```
+
+### D6. Open it
+
+**http://127.0.0.1:8077** — search is at `/`, the library manager at `/library`.
+
+The port is bound to `127.0.0.1` deliberately. **Pantry Chef has no
+authentication**; it assumes only you can reach it. To put it on a network,
+follow [DEPLOY.md](DEPLOY.md), which puts a password in front of it.
+
+### D7. Day to day
+
+```bash
+docker compose logs -f                  # follow the log
+docker compose restart                  # restart it
+docker compose stop                     # stop it (the index is kept)
+docker compose up -d                    # start it again
+```
+
+Add books later — drop them in the folder, then re-index. Unchanged books are
+skipped, so this is cheap to re-run:
+
+```bash
+docker compose run --rm pantry-chef pantry-chef index /books
+```
+
+Or use the **Library** page in the browser, which does the same thing with a
+progress bar.
+
+### D8. Upgrade
+
+```bash
+cd pantry-chef
+git pull
+docker compose build --pull
+docker compose up -d
+```
+
+`--pull` also refreshes the Python base image, so you pick up its security
+updates rather than rebuilding on a stale layer.
+
+If an upgrade changes how recipes are parsed, re-read your books to get the
+improvements:
+
+```bash
+docker compose run --rm pantry-chef pantry-chef index /books --force
+```
+
+Older databases are migrated in place on first open — columns are added and the
+search index rebuilt without losing anything. One caveat: **`--force` reassigns
+recipe ids**, so bookmarked `/recipe/<id>` links will not survive it.
+
+Old images pile up after a few upgrades. To reclaim the space:
+
+```bash
+docker image prune
+```
+
+### D9. Uninstall
+
+```bash
+docker compose down                     # stop and remove the container
+docker compose down -v                  # …and delete the index as well
+docker rmi pantry-chef                  # remove the image
+```
+
+Your cookbooks are never touched by any of this — they are only ever mounted
+read-only.
+
+---
+
+## E. Podman
+
+The same image, rootless and without a background daemon. Podman reads the same
+`Containerfile` and `compose.yaml`; only the commands differ.
+
+### E1. Install Podman
+
+**macOS**
+
+```bash
+brew install podman
+podman machine init
+podman machine start
+```
+
+If your books live outside your home directory, share that path with the VM when
+you create it: `podman machine init -v /Volumes/Books:/Volumes/Books`.
+
+**Linux**
+
+```bash
+sudo apt install -y podman        # Debian/Ubuntu
+sudo dnf install -y podman        # Fedora/RHEL
+```
+
+### E2. Get the app and build the image
+
+```bash
+git clone https://github.com/rnvegter/pantry-chef.git
+cd pantry-chef
 podman build -t pantry-chef -f Containerfile .
 ```
 
-### Index your books
-
-A one-off run, with the same volumes the server will use:
+### E3. Build the index
 
 ```bash
 podman run --rm \
@@ -193,7 +370,10 @@ podman run --rm \
   pantry-chef pantry-chef index /books
 ```
 
-### Serve
+Add `,Z` to the books mount on SELinux systems (Fedora, RHEL):
+`-v ~/Books/Cookbooks:/books:ro,Z`.
+
+### E4. Run it
 
 ```bash
 podman run -d --name pantry-chef \
@@ -205,65 +385,65 @@ podman run -d --name pantry-chef \
 
 Then open **http://127.0.0.1:8077**.
 
-Or with Compose, which builds and runs in one step:
+### E5. Day to day and upgrading
 
 ```bash
-echo "BOOKS=$HOME/Books/Cookbooks" > .env
-docker compose up -d                    # or: podman-compose up -d
+podman logs -f pantry-chef              # follow the log
+podman stop pantry-chef                 # stop it
+podman start pantry-chef                # start it again
+
+# add books later
+podman run --rm -v ~/Books/Cookbooks:/books:ro -v pantry-chef-data:/data \
+  pantry-chef pantry-chef index /books
+
+# upgrade
+git pull
+podman build --pull -t pantry-chef -f Containerfile .
+podman rm -f pantry-chef
+podman run -d --name pantry-chef -p 127.0.0.1:8077:8077 \
+  -v ~/Books/Cookbooks:/books:ro -v pantry-chef-data:/data pantry-chef
+
+# uninstall
+podman rm -f pantry-chef
+podman rmi pantry-chef
+podman volume rm pantry-chef-data       # deletes the index
 ```
 
-Then build the index **through Compose**, so it lands in the volume the service
-actually reads — Compose prefixes volume names with the project name, so a bare
-`docker run -v pantry-chef-data:/data` would write somewhere else and the app
-would report no database:
+Podman can also use `compose.yaml` — install a provider with
+`pip install podman-compose`, then follow the Docker commands in
+[route D](#d-docker), substituting `podman-compose` for `docker compose`.
 
-```bash
-docker compose run --rm pantry-chef pantry-chef index /books
-```
+### Notes for both container routes
 
-### Why the volumes are what they are
+**Pick one home and stay there.** The database records where each book lives.
+Index inside a container and the paths are `/books/…`; index on the host and
+they are `/Users/you/…`. Those paths are what recipe photos are read from at
+display time, so a database built in one place shows no photos in the other, and
+re-indexing treats every book as new. Switching costs one `index --force`.
+
+**Why the mounts are what they are.**
 
 | Mount | Why |
 |---|---|
 | `/books` **read-only** | Your library is never copied into the image and never modified. It must stay mounted while the app runs, because recipe photos are read from the books on demand. |
 | `/data` | The index and the photo cache. Without it, every restart re-reads your whole library. |
 
-The port is bound to `127.0.0.1` deliberately. **Pantry Chef has no
-authentication** — it assumes it is reachable only by you. Publishing it on
-`0.0.0.0` exposes your library to anything that can reach the host.
+**Rootless file ownership (Podman).** The container runs as UID 1000. A *named*
+volume is initialised with the right ownership automatically; if you bind-mount
+a host directory at `/data` instead, add `:U` so Podman adjusts it:
+`-v ./data:/data:U`.
 
-### Platform notes
-
-**macOS.** Podman runs Linux in a VM, so the book folder must be shared with
-that VM. Recent Podman versions mount your home directory automatically; if your
-books live elsewhere, add it when creating the machine:
-
-```bash
-podman machine init -v /Volumes/Books:/Volumes/Books
-podman machine start
-```
-
-**SELinux (Fedora, RHEL).** Append `:Z` to bind mounts so the container may read
-them: `-v ~/Books/Cookbooks:/books:ro,Z`.
-
-**Rootless file ownership.** The container runs as UID 1000. A *named* volume
-(as above, and as in `compose.yaml`) is initialised with the right ownership
-automatically. If you bind-mount a host directory at `/data` instead, add `:U`
-so Podman adjusts it: `-v ./data:/data:U`.
-
-### Is a container worth it here?
-
-On Linux, yes — it isolates the dependencies cleanly. On macOS it is a harder
-sell: Podman adds a VM between the app and your books, file access across that
-boundary is slower, and route A has none of those problems. The container earns
-its place if you want to run Pantry Chef on a home server or NAS and reach it
-from a laptop.
+**Is a container worth it here?** On Linux, yes — it isolates the dependencies
+cleanly. On macOS it is a harder sell: both Docker and Podman put a VM between
+the app and your books, file access across that boundary is slower, and route A
+has none of those problems. Containers earn their place when you want Pantry
+Chef on a home server or NAS and reach it from a laptop.
 
 ---
 
 ## Index your cookbooks
 
-*Routes A, B and C. The container route has its own commands above.*
+*Routes A, B and C. The container routes have their own commands above.*
 
 Point it at the folder your ebooks live in:
 
@@ -337,6 +517,12 @@ pip install -e ".[all,dev]"     # or: uv pip install -e ".[all,dev]"
 pytest -q
 ```
 
+Inside a container instead:
+
+```bash
+docker compose run --rm pantry-chef sh -c "pip install pytest && pytest -q"
+```
+
 213 tests should pass in about ten seconds. They generate their own sample
 cookbooks, so you do not need any books of your own to run them.
 
@@ -391,8 +577,10 @@ language with the fix, and has a Retry button.
 git pull
 pip install -e ".[all]"          # uv:   uv pip install -e ".[all]"
                                  # pipx: pipx install --force ".[all]"
-                                 # container: podman build -t pantry-chef -f Containerfile .
 ```
+
+Container routes upgrade differently — see [D8](#d8-upgrade) for Docker and
+[E5](#e5-day-to-day-and-upgrading) for Podman.
 
 If an update changes how recipes are parsed, re-read your books to pick up the
 improvements:
@@ -414,6 +602,7 @@ recipe ids**, because recipes are replaced rather than updated, so bookmarked
 |---|---|
 | venv + pip, uv | delete the folder — nothing is installed system-wide |
 | pipx | `pipx uninstall pantry-chef`, then delete the folder |
-| container | `podman rm -f pantry-chef && podman rmi pantry-chef && podman volume rm pantry-chef-data` |
+| Docker | `docker compose down -v && docker rmi pantry-chef` |
+| Podman | `podman rm -f pantry-chef && podman rmi pantry-chef && podman volume rm pantry-chef-data` |
 
 No background service is registered on any route, and your ebooks are untouched.
