@@ -166,19 +166,20 @@ a.open:hover { text-decoration: underline; }
 
     <div id="panelName" role="tabpanel" aria-labelledby="tabName" hidden>
       <div class="controls">
-        <div>
+        <div class="combo">
           <label for="title">Recipe title</label>
-          <input type="text" id="title" placeholder="e.g. orange chicken">
+          <input type="text" id="title" autocomplete="off" placeholder="e.g. orange chicken">
+          <div class="suggest" id="titleSuggest" hidden></div>
         </div>
-        <div>
+        <div class="combo">
           <label for="author">Author</label>
-          <input type="text" id="author" list="authorList" placeholder="e.g. Ottolenghi">
-          <datalist id="authorList"></datalist>
+          <input type="text" id="author" autocomplete="off" placeholder="e.g. Sepsy">
+          <div class="suggest" id="authorSuggest" hidden></div>
         </div>
-        <div>
+        <div class="combo">
           <label for="book">Cookbook</label>
-          <input type="text" id="book" list="bookList" placeholder="e.g. Simple">
-          <datalist id="bookList"></datalist>
+          <input type="text" id="book" autocomplete="off" placeholder="e.g. Scone Queen">
+          <div class="suggest" id="bookSuggest" hidden></div>
         </div>
         <div>
           <label for="text">Anywhere in the recipe</label>
@@ -354,8 +355,76 @@ $("missing").addEventListener("input", () => {
 });
 ["time", "missing", "sort", "noWait", "cuisine", "strict"].forEach(id =>
   $(id).addEventListener("change", run));
-["text", "title", "author", "book"].forEach(id =>
-  $(id).addEventListener("keydown", e => { if (e.key === "Enter") run(); }));
+// --- autocomplete for the by-name fields ---------------------------------
+
+// Every suggestion is a value that exists in the library, so choosing one can
+// never come back empty. That is the point: nobody guesses the spelling of
+// "Bulsiewicz", and the old native datalist could not offer it, because it only
+// matched from the start of the string.
+function attachComplete(inputId, field) {
+  const input = $(inputId);
+  const box = $(inputId + "Suggest");
+  let at = -1;
+  let timer = null;
+
+  const close = () => { box.hidden = true; box.innerHTML = ""; at = -1; };
+  const rows = () => [...box.querySelectorAll("div")];
+
+  const choose = (value) => { input.value = value; close(); run(); };
+
+  async function fetchSuggestions() {
+    const q = input.value.trim();
+    if (q.length < 2) return close();
+    const items = await fetch(
+      `/api/complete?field=${field}&q=` + encodeURIComponent(q)
+    ).then(r => r.json()).catch(() => []);
+    // The field may have moved on while the request was in flight.
+    if (input.value.trim() !== q) return;
+    if (!items.length || (items.length === 1 && items[0].value === q)) return close();
+
+    box.innerHTML = "";
+    items.forEach(item => {
+      const row = document.createElement("div");
+      row.innerHTML =
+        `<span>${esc(item.value)}</span><small>${item.recipes.toLocaleString()}</small>`;
+      row.onmousedown = (e) => { e.preventDefault(); choose(item.value); };
+      box.appendChild(row);
+    });
+    at = -1;
+    box.hidden = false;
+  }
+
+  input.addEventListener("input", () => {
+    clearTimeout(timer);
+    timer = setTimeout(fetchSuggestions, 160);
+    // Emptying a field should widen the search again rather than leave stale
+    // results sitting under a box you have just cleared.
+    if (!input.value.trim()) { close(); run(); }
+  });
+  input.addEventListener("blur", () => setTimeout(close, 120));
+  input.addEventListener("keydown", (e) => {
+    const list = rows();
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (at >= 0 && list[at]) list[at].onmousedown(e);
+      else { close(); run(); }
+    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      if (!list.length) return;
+      e.preventDefault();
+      at = (at + (e.key === "ArrowDown" ? 1 : -1) + list.length) % list.length;
+      list.forEach((r, i) => r.setAttribute("aria-selected", i === at));
+    } else if (e.key === "Escape") {
+      close();
+    }
+  });
+}
+
+attachComplete("title", "title");
+attachComplete("author", "author");
+attachComplete("book", "book");
+
+// "Anywhere in the recipe" is free text with nothing to complete against.
+$("text").addEventListener("keydown", e => { if (e.key === "Enter") run(); });
 $("go").onclick = run;
 $("clear").onclick = () => {
   pantry = []; meals.clear(); diets.clear(); avoid.clear();
@@ -519,12 +588,6 @@ fetch("/api/stats").then(r => r.json()).then(s => {
       run();
     });
   };
-  const options = (items) => (items || [])
-    .map(a => `<option value="${esc(a.name)}">${a.recipes.toLocaleString()} recipes</option>`)
-    .join("");
-  $("authorList").innerHTML = options(s.authors);
-  $("bookList").innerHTML = options(s.book_titles);
-
   pillRow("diets", s.diets, diets);
   pillRow("allergens", s.allergens, avoid);
 

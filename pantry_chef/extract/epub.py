@@ -10,7 +10,7 @@ import posixpath
 import zipfile
 from xml.etree import ElementTree as ET
 
-from .blocks import IMAGE, Block, blocks_from_html, renumber
+from .blocks import IMAGE, Block, blocks_from_html, clean_metadata, renumber
 
 # Images that are furniture rather than photographs.
 _NOT_A_PHOTO = (
@@ -55,7 +55,9 @@ def _spine_documents(zf: zipfile.ZipFile, opf_path: str) -> tuple[list[str], dic
     for tag in ("title", "creator", "language", "publisher", "date"):
         node = opf.find(f".//{_DC_NS}{tag}")
         if node is not None and node.text:
-            meta[tag] = node.text.strip()
+            cleaned = clean_metadata(node.text)
+            if cleaned:
+                meta[tag] = cleaned
 
     manifest: dict[str, tuple[str, str]] = {}
     for item in opf.iter(f"{_OPF_NS}item"):

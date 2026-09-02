@@ -331,6 +331,72 @@ def list_book_titles(conn: sqlite3.Connection) -> list[tuple[str, int]]:
     ]
 
 
+def complete_titles(conn: sqlite3.Connection, prefix: str,
+                    limit: int = 8) -> list[tuple[str, int]]:
+    """Recipe titles beginning with, or containing a word beginning with, `prefix`.
+
+    Matched through the FTS title column rather than with LIKE, so this stays
+    fast on a library of 50,000 recipes. The same dish appears in several
+    editions of a book, so titles are folded case-insensitively and counted.
+    """
+    words = [w for w in "".join(
+        c if c.isalnum() or c.isspace() else " " for c in prefix
+    ).split() if w]
+    if not words:
+        return []
+    match = " AND ".join(f'title:"{w}"*' for w in words)
+
+    try:
+        rows = conn.execute(
+            """SELECT MAX(r.title) AS title, COUNT(*) AS n
+               FROM recipes r
+               WHERE r.id IN (SELECT rowid FROM recipes_fts WHERE recipes_fts MATCH ?)
+               GROUP BY LOWER(r.title)
+               ORDER BY n DESC, LENGTH(r.title), LOWER(r.title)
+               LIMIT ?""",
+            (match, limit),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return []       # a query FTS cannot parse is a miss, not an error
+    return [(row["title"], int(row["n"])) for row in rows]
+
+
+def complete_authors(conn: sqlite3.Connection, fragment: str,
+                     limit: int = 8) -> list[tuple[str, int]]:
+    """Authors whose name contains `fragment`, with their recipe counts."""
+    return _complete_book_column(conn, "author", fragment, limit)
+
+
+def complete_book_titles(conn: sqlite3.Connection, fragment: str,
+                         limit: int = 8) -> list[tuple[str, int]]:
+    """Book titles containing `fragment`, with their recipe counts."""
+    return _complete_book_column(conn, "title", fragment, limit)
+
+
+def _complete_book_column(conn: sqlite3.Connection, column: str,
+                          fragment: str, limit: int) -> list[tuple[str, int]]:
+    """Substring match over one column of `books`.
+
+    LIKE is fine here where it would not be for recipes: there is one row per
+    book, so even a large library is a few hundred rows. Substring rather than
+    prefix matters — people type "Ottolenghi" for a book called
+    "Simple: A Cookbook by Yotam Ottolenghi".
+    """
+    fragment = fragment.strip()
+    if not fragment:
+        return []
+    rows = conn.execute(
+        f"""SELECT b.{column} AS value, COUNT(r.id) AS n
+            FROM books b JOIN recipes r ON r.book_id = b.id
+            WHERE b.{column} <> '' AND b.{column} LIKE ?
+            GROUP BY b.{column}
+            ORDER BY n DESC, b.{column}
+            LIMIT ?""",
+        (f"%{fragment}%", limit),
+    ).fetchall()
+    return [(row["value"], int(row["n"])) for row in rows]
+
+
 def failed_books(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     """Books that could not be read."""
     return conn.execute(

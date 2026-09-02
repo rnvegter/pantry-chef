@@ -232,6 +232,57 @@ def test_photo_for_an_unknown_recipe_is_404(client):
     assert client.get("/api/recipe/999999/image").status_code == 404
 
 
+# --- autocomplete -----------------------------------------------------------
+
+def test_complete_endpoint_per_field(client):
+    titles = client.get("/api/complete", params={"field": "title", "q": "lem"}).json()
+    assert titles and any("Lemon" in t["value"] for t in titles)
+    assert {"value", "recipes"} <= set(titles[0])
+
+    authors = client.get("/api/complete", params={"field": "author", "q": "cook"}).json()
+    assert authors and authors[0]["value"] == "A. Cook"
+
+    books = client.get("/api/complete", params={"field": "book", "q": "small"}).json()
+    assert books and "Small Kitchen" in books[0]["value"]
+
+
+def test_complete_waits_for_two_characters(client):
+    # One letter would match most of the library and help nobody.
+    assert client.get("/api/complete", params={"field": "author", "q": "a"}).json() == []
+    assert client.get("/api/complete", params={"field": "title", "q": ""}).json() == []
+
+
+def test_complete_suggestions_are_real_searches(client):
+    """Every suggestion must be a value that actually returns results —
+    otherwise picking one from the list would come back empty."""
+    for suggestion in client.get(
+            "/api/complete", params={"field": "author", "q": "cook"}).json():
+        found = client.post("/api/search", json={"author": suggestion["value"]}).json()
+        assert found["results"], suggestion["value"]
+
+    for suggestion in client.get(
+            "/api/complete", params={"field": "title", "q": "lem"}).json():
+        found = client.post("/api/search", json={"title": suggestion["value"]}).json()
+        assert found["results"], suggestion["value"]
+
+
+def test_complete_titles_are_shown_recased(client):
+    for suggestion in client.get(
+            "/api/complete", params={"field": "title", "q": "lem"}).json():
+        assert not suggestion["value"].isupper()
+
+
+def test_complete_respects_the_limit(client):
+    many = client.get("/api/complete",
+                      params={"field": "title", "q": "a", "limit": 3}).json()
+    assert len(many) <= 3
+
+
+def test_complete_with_an_unknown_field_falls_back_to_titles(client):
+    data = client.get("/api/complete", params={"field": "nonsense", "q": "lem"}).json()
+    assert data and any("Lemon" in d["value"] for d in data)
+
+
 # --- searching by title and author over HTTP --------------------------------
 
 def test_search_by_title_and_author(client):

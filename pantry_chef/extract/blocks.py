@@ -56,6 +56,18 @@ def tidy(text: str) -> str:
     return text.strip()
 
 
+def clean_metadata(value: str) -> str:
+    """Tidy a title or author string out of a book's own metadata.
+
+    Publishers leave separators behind: `dc:creator` frequently reads
+    "Danielle Sepsy;" because the field was built by joining a list that had one
+    entry. Trailing separators are stripped, internal ones left alone — "Will
+    Bulsiewicz, MD" is a name, not a list.
+    """
+    value = _WS_RE.sub(" ", (value or "").replace("\n", " ")).strip()
+    return value.strip(" ;,·|/&").strip()
+
+
 # Tags whose content is never body text.
 _SKIP_TAGS = {"script", "style", "head", "title", "meta", "link", "svg", "nav"}
 _BLOCK_TAGS = {

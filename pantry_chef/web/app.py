@@ -192,6 +192,34 @@ def api_recipe(recipe_id: int, have: str = Q(default="", max_length=2000),
         conn.close()
 
 
+@app.get("/api/complete")
+def api_complete(field: str = Q(default="title"),
+                 q: str = Q(default="", max_length=120),
+                 limit: int = Q(default=8, ge=1, le=25)) -> JSONResponse:
+    """Autocomplete for the by-name search fields, drawn from the library.
+
+    Every suggestion is a value that actually exists in the index, so picking
+    one cannot produce an empty result — which is the point, given the spelling
+    of a name like "Bulsiewicz" is exactly what a person cannot guess.
+    """
+    text = q.strip()
+    if len(text) < 2:
+        return JSONResponse([])
+
+    conn = get_conn()
+    try:
+        if field == "author":
+            rows = db.complete_authors(conn, text, limit)
+        elif field == "book":
+            rows = db.complete_book_titles(conn, text, limit)
+        else:
+            rows = [(display_title(t), n) for t, n in db.complete_titles(conn, text, limit)]
+    finally:
+        conn.close()
+
+    return JSONResponse([{"value": value, "recipes": n} for value, n in rows])
+
+
 @app.get("/api/recipe/{recipe_id}/image")
 def api_recipe_image(recipe_id: int) -> Response:
     """The recipe's photograph, read out of the book it came from."""

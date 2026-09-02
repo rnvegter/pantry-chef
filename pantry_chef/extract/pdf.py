@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from .blocks import IMAGE, Block, renumber, tidy
+from .blocks import IMAGE, Block, clean_metadata, renumber, tidy
 
 # Below this, page artwork is a rule or a logo rather than a photograph.
 MIN_IMAGE_BYTES = 15_000
@@ -111,7 +111,7 @@ def read_pdf(path: str, max_pages: int | None = None) -> tuple[list[Block], dict
             )
 
     meta = {
-        "title": (meta_raw.get("title") or "").strip(),
-        "creator": (meta_raw.get("author") or "").strip(),
+        "title": clean_metadata(meta_raw.get("title") or ""),
+        "creator": clean_metadata(meta_raw.get("author") or ""),
     }
     return renumber(blocks), {k: v for k, v in meta.items() if v}

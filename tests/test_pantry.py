@@ -15,7 +15,11 @@ from pantry_chef.extract import format_of, is_supported, read_book         # noq
 from pantry_chef.images import downscale, load_image                  # noqa: E402
 from pantry_chef.extract.blocks import blocks_from_html                    # noqa: E402
 from pantry_chef.index import ingest                                       # noqa: E402
-from pantry_chef.db import add_source, list_sources, remove_source, tag_counts  # noqa: E402
+from pantry_chef.db import (                                          # noqa: E402
+    add_source, complete_authors, complete_book_titles, complete_titles,
+    list_sources, remove_source, tag_counts,
+)
+from pantry_chef.extract.blocks import clean_metadata                 # noqa: E402
 from pantry_chef.jobs import (                                             # noqa: E402
     IndexJobManager, diagnose, diagnose_empty, inspect_folder, list_directories,
 )
@@ -1036,3 +1040,71 @@ def test_photo_reference_survives_the_database(indexed_db):
         "SELECT COUNT(*) FROM recipes WHERE image_ref <> ''").fetchone()
     assert row[0] >= 5
     assert stats(conn)["with_photo"] >= 5
+
+
+# --- autocomplete for the by-name fields -----------------------------------
+
+def test_title_completion(indexed_db):
+    conn = connect(indexed_db, read_only=True)
+    titles = [t for t, _n in complete_titles(conn, "lem")]
+    assert any("Lemon" in t for t in titles)
+
+
+def test_title_completion_matches_a_word_anywhere_in_the_title(indexed_db):
+    # "Weeknight Tomato Linguine" should be findable by "ling", not just "week".
+    conn = connect(indexed_db, read_only=True)
+    titles = [t for t, _n in complete_titles(conn, "ling")]
+    assert any("Linguine" in t for t in titles)
+
+
+def test_title_completion_needs_something_to_go_on(indexed_db):
+    conn = connect(indexed_db, read_only=True)
+    assert complete_titles(conn, "") == []
+    assert complete_titles(conn, "   ") == []
+
+
+def test_title_completion_survives_punctuation(indexed_db):
+    """Raw user text reaches an FTS MATCH, where a stray quote is a syntax
+    error rather than a miss."""
+    conn = connect(indexed_db, read_only=True)
+    for text in ['"', "NEAR(", "a AND OR b", "*", "'", "((("]:
+        complete_titles(conn, text)
+
+
+def test_author_and_book_completion(indexed_db):
+    conn = connect(indexed_db, read_only=True)
+    authors = complete_authors(conn, "cook")
+    assert authors and authors[0][0] == "A. Cook"
+    assert authors[0][1] > 0                     # carries a recipe count
+
+    books = complete_book_titles(conn, "small")
+    assert books and "Small Kitchen" in books[0][0]
+
+
+def test_completion_matches_inside_the_value_not_just_the_start(indexed_db):
+    # People type the half of the name they remember.
+    conn = connect(indexed_db, read_only=True)
+    assert complete_book_titles(conn, "kitchen")
+
+
+def test_completion_returns_nothing_for_a_miss(indexed_db):
+    conn = connect(indexed_db, read_only=True)
+    assert complete_authors(conn, "nobody at all") == []
+    assert complete_book_titles(conn, "no such book") == []
+
+
+# --- book metadata cleaning -------------------------------------------------
+
+@pytest.mark.parametrize("raw,expected", [
+    # Publishers join a one-entry list and leave the separator behind.
+    ("Danielle Sepsy;", "Danielle Sepsy"),
+    ("Mariam Daud;", "Mariam Daud"),
+    ("A. Cook &", "A. Cook"),
+    ("  Jenn  Lueke ", "Jenn Lueke"),
+    # An internal comma is part of the name, not a list separator.
+    ("Will Bulsiewicz, MD", "Will Bulsiewicz, MD"),
+    ("Name; Other;", "Name; Other"),
+    ("", ""),
+])
+def test_clean_metadata(raw, expected):
+    assert clean_metadata(raw) == expected
