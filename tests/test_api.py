@@ -246,10 +246,25 @@ def test_complete_endpoint_per_field(client):
     assert books and "Small Kitchen" in books[0]["value"]
 
 
-def test_complete_waits_for_two_characters(client):
-    # One letter would match most of the library and help nobody.
+def test_complete_ignores_a_single_letter(client):
+    # One letter is someone mid-word; answering it is noise.
     assert client.get("/api/complete", params={"field": "author", "q": "a"}).json() == []
-    assert client.get("/api/complete", params={"field": "title", "q": ""}).json() == []
+
+
+def test_empty_query_browses_the_library(client):
+    """The pulldown opens with an empty query, and must come back with the
+    list to choose from rather than nothing."""
+    for field in ("author", "book", "title"):
+        listed = client.get("/api/complete",
+                            params={"field": field, "q": "", "limit": 50}).json()
+        assert listed, field
+        assert {"value", "recipes"} <= set(listed[0])
+
+    # And browsing offers the real values, not a guess: each one still searches.
+    for suggestion in client.get(
+            "/api/complete", params={"field": "author", "q": ""}).json():
+        assert client.post(
+            "/api/search", json={"author": suggestion["value"]}).json()["results"]
 
 
 def test_complete_suggestions_are_real_searches(client):

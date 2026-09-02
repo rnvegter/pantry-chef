@@ -195,15 +195,17 @@ def api_recipe(recipe_id: int, have: str = Q(default="", max_length=2000),
 @app.get("/api/complete")
 def api_complete(field: str = Q(default="title"),
                  q: str = Q(default="", max_length=120),
-                 limit: int = Q(default=8, ge=1, le=25)) -> JSONResponse:
+                 limit: int = Q(default=8, ge=1, le=200)) -> JSONResponse:
     """Autocomplete for the by-name search fields, drawn from the library.
 
     Every suggestion is a value that actually exists in the index, so picking
     one cannot produce an empty result — which is the point, given the spelling
     of a name like "Bulsiewicz" is exactly what a person cannot guess.
     """
+    # An empty query is the dropdown being opened to browse. A single letter is
+    # someone mid-word, and answering that is noise.
     text = q.strip()
-    if len(text) < 2:
+    if len(text) == 1:
         return JSONResponse([])
 
     conn = get_conn()

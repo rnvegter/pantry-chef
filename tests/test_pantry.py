@@ -1057,10 +1057,27 @@ def test_title_completion_matches_a_word_anywhere_in_the_title(indexed_db):
     assert any("Linguine" in t for t in titles)
 
 
-def test_title_completion_needs_something_to_go_on(indexed_db):
+def test_empty_query_browses_rather_than_returning_nothing(indexed_db):
+    """An empty box means the dropdown was opened to look at the list, which is
+    the whole point of the pulldown: pick a value instead of guessing one."""
     conn = connect(indexed_db, read_only=True)
-    assert complete_titles(conn, "") == []
-    assert complete_titles(conn, "   ") == []
+    assert complete_titles(conn, "")
+    assert complete_titles(conn, "   ")
+    assert complete_authors(conn, "")
+    assert complete_book_titles(conn, "")
+
+
+def test_browsing_titles_is_alphabetical(indexed_db):
+    # Ordering by how often a title repeats surfaces the duplicates, which are
+    # the least useful thing to put at the top of a browse list.
+    conn = connect(indexed_db, read_only=True)
+    titles = [t for t, _n in complete_titles(conn, "", limit=50)]
+    assert titles == sorted(titles, key=str.lower)
+
+
+def test_browse_respects_the_limit(indexed_db):
+    conn = connect(indexed_db, read_only=True)
+    assert len(complete_titles(conn, "", limit=3)) <= 3
 
 
 def test_title_completion_survives_punctuation(indexed_db):
@@ -1108,3 +1125,19 @@ def test_completion_returns_nothing_for_a_miss(indexed_db):
 ])
 def test_clean_metadata(raw, expected):
     assert clean_metadata(raw) == expected
+
+
+# --- yield lines are not recipe titles -------------------------------------
+
+def test_a_yield_line_is_never_taken_as_a_title():
+    """"MAKES ABOUT 3 CUPS" sits exactly where a title sits, and is often set
+    in the same capitals, so it used to be picked up as the recipe's name."""
+    from pantry_chef.extract.blocks import HEADING, Block
+    from pantry_chef.parse.segment import _looks_like_title
+
+    for text in ("MAKES ABOUT 3 CUPS", "Makes 12 cookies", "Serves 4 to 6",
+                 "YIELDS 2 LOAVES", "Feeds a crowd"):
+        assert not _looks_like_title(Block(text=text, kind=HEADING, level=2)), text
+
+    for text in ("Lemon and Garlic Roast Chicken", "Dough", "Chocolate Baklava"):
+        assert _looks_like_title(Block(text=text, kind=HEADING, level=2)), text

@@ -48,6 +48,20 @@
 }
 
 .combo { position: relative; }
+/* Browsing the whole list needs a scroll; six authors do not, six hundred
+   recipe titles do. */
+.suggest { max-height: 264px; overflow-y: auto; }
+.combo.pick input { padding-right: 34px; }
+.combo.pick .caret {
+  position: absolute; right: 5px; bottom: 5px; width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  border: 0; background: none; color: var(--muted); cursor: pointer;
+  border-radius: 7px; padding: 0;
+}
+.combo.pick .caret svg { width: 18px; height: 18px; transition: transform .15s ease; }
+.combo.pick .caret:hover { color: var(--accent); background: var(--accent-soft); }
+.combo.pick input[aria-expanded="true"] ~ .caret svg { transform: rotate(180deg); }
+
 .suggest {
   position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 4px);
   background: var(--surface); border: 1px solid var(--line);
@@ -166,20 +180,44 @@ a.open:hover { text-decoration: underline; }
 
     <div id="panelName" role="tabpanel" aria-labelledby="tabName" hidden>
       <div class="controls">
-        <div class="combo">
+        <div class="combo pick">
           <label for="title">Recipe title</label>
-          <input type="text" id="title" autocomplete="off" placeholder="e.g. orange chicken">
-          <div class="suggest" id="titleSuggest" hidden></div>
+          <input type="text" id="title" autocomplete="off" placeholder="e.g. orange chicken"
+                 role="combobox" aria-expanded="false" aria-controls="titleSuggest"
+                 aria-autocomplete="list">
+          <button type="button" class="caret" id="titleOpen" tabindex="-1"
+                  aria-label="Show everything in your library">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5.5 8l4.5 4.5L14.5 8"
+              fill="none" stroke="currentColor" stroke-width="1.7"
+              stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="suggest" id="titleSuggest" hidden role="listbox"></div>
         </div>
-        <div class="combo">
+        <div class="combo pick">
           <label for="author">Author</label>
-          <input type="text" id="author" autocomplete="off" placeholder="e.g. Sepsy">
-          <div class="suggest" id="authorSuggest" hidden></div>
+          <input type="text" id="author" autocomplete="off" placeholder="e.g. Sepsy"
+                 role="combobox" aria-expanded="false" aria-controls="authorSuggest"
+                 aria-autocomplete="list">
+          <button type="button" class="caret" id="authorOpen" tabindex="-1"
+                  aria-label="Show everything in your library">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5.5 8l4.5 4.5L14.5 8"
+              fill="none" stroke="currentColor" stroke-width="1.7"
+              stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="suggest" id="authorSuggest" hidden role="listbox"></div>
         </div>
-        <div class="combo">
+        <div class="combo pick">
           <label for="book">Cookbook</label>
-          <input type="text" id="book" autocomplete="off" placeholder="e.g. Scone Queen">
-          <div class="suggest" id="bookSuggest" hidden></div>
+          <input type="text" id="book" autocomplete="off" placeholder="e.g. Scone Queen"
+                 role="combobox" aria-expanded="false" aria-controls="bookSuggest"
+                 aria-autocomplete="list">
+          <button type="button" class="caret" id="bookOpen" tabindex="-1"
+                  aria-label="Show everything in your library">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5.5 8l4.5 4.5L14.5 8"
+              fill="none" stroke="currentColor" stroke-width="1.7"
+              stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="suggest" id="bookSuggest" hidden role="listbox"></div>
         </div>
         <div>
           <label for="text">Anywhere in the recipe</label>
@@ -367,19 +405,23 @@ function attachComplete(inputId, field) {
   let at = -1;
   let timer = null;
 
-  const close = () => { box.hidden = true; box.innerHTML = ""; at = -1; };
+  const close = () => {
+    box.hidden = true; box.innerHTML = ""; at = -1;
+    input.setAttribute("aria-expanded", "false");
+  };
   const rows = () => [...box.querySelectorAll("div")];
 
   const choose = (value) => { input.value = value; close(); run(); };
 
-  async function fetchSuggestions() {
-    const q = input.value.trim();
-    if (q.length < 2) return close();
+  // `browse` opens the whole list rather than filtering by what is typed.
+  async function fetchSuggestions(browse = false) {
+    const q = browse ? "" : input.value.trim();
+    if (!browse && q.length < 2) return close();
     const items = await fetch(
-      `/api/complete?field=${field}&q=` + encodeURIComponent(q)
+      `/api/complete?field=${field}&limit=${browse ? 200 : 8}&q=` + encodeURIComponent(q)
     ).then(r => r.json()).catch(() => []);
     // The field may have moved on while the request was in flight.
-    if (input.value.trim() !== q) return;
+    if (!browse && input.value.trim() !== q) return;
     if (!items.length || (items.length === 1 && items[0].value === q)) return close();
 
     box.innerHTML = "";
@@ -392,6 +434,7 @@ function attachComplete(inputId, field) {
     });
     at = -1;
     box.hidden = false;
+    input.setAttribute("aria-expanded", "true");
   }
 
   input.addEventListener("input", () => {
@@ -401,6 +444,15 @@ function attachComplete(inputId, field) {
     // results sitting under a box you have just cleared.
     if (!input.value.trim()) { close(); run(); }
   });
+  // mousedown rather than click, with the default prevented, so the input does
+  // not blur out from under the menu it is opening.
+  $(inputId + "Open").addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    if (!box.hidden) return close();
+    input.focus();
+    fetchSuggestions(true);
+  });
+
   input.addEventListener("blur", () => setTimeout(close, 120));
   input.addEventListener("keydown", (e) => {
     const list = rows();

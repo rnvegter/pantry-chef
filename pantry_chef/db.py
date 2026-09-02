@@ -342,8 +342,17 @@ def complete_titles(conn: sqlite3.Connection, prefix: str,
     words = [w for w in "".join(
         c if c.isalnum() or c.isspace() else " " for c in prefix
     ).split() if w]
+
+    # Browsing with an empty box: the most-repeated titles first, which are the
+    # dishes that appear across several books.
     if not words:
-        return []
+        rows = conn.execute(
+            """SELECT MAX(title) AS title, COUNT(*) AS n FROM recipes
+               GROUP BY LOWER(title) ORDER BY LOWER(title) LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [(row["title"], int(row["n"])) for row in rows]
+
     match = " AND ".join(f'title:"{w}"*' for w in words)
 
     try:
@@ -383,16 +392,21 @@ def _complete_book_column(conn: sqlite3.Connection, column: str,
     "Simple: A Cookbook by Yotam Ottolenghi".
     """
     fragment = fragment.strip()
-    if not fragment:
-        return []
+    # An empty fragment is a request to browse, not a mistake: the dropdown
+    # opens with the whole list so you can pick rather than guess a spelling.
+    where, params = "", []
+    if fragment:
+        where = f"AND b.{column} LIKE ?"
+        params.append(f"%{fragment}%")
+
     rows = conn.execute(
         f"""SELECT b.{column} AS value, COUNT(r.id) AS n
             FROM books b JOIN recipes r ON r.book_id = b.id
-            WHERE b.{column} <> '' AND b.{column} LIKE ?
+            WHERE b.{column} <> '' {where}
             GROUP BY b.{column}
             ORDER BY n DESC, b.{column}
             LIMIT ?""",
-        (f"%{fragment}%", limit),
+        (*params, limit),
     ).fetchall()
     return [(row["value"], int(row["n"])) for row in rows]
 

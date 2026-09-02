@@ -89,11 +89,20 @@ def _is_structural_heading(text: str) -> bool:
     )
 
 
+# "MAKES ABOUT 3 CUPS", "Serves 4 to 6" — a yield line sits exactly where a
+# title does, and is often set in the same capitals, so it gets picked up as
+# one. It is metadata about the recipe, never its name.
+_YIELD_LINE_RE = re.compile(
+    r"^\s*(?:makes|serves|serving|servings|yields?|feeds)\b", re.IGNORECASE)
+
+
 def _looks_like_title(block: Block) -> bool:
     """Whether a block can serve as a recipe title."""
     if block.kind == IMAGE:
         return False
     text = block.text.strip()
+    if _YIELD_LINE_RE.match(text):
+        return False
     if not (2 <= len(text) <= 120):
         return False
     if _is_structural_heading(text):
