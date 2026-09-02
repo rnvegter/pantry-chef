@@ -244,6 +244,16 @@ Takes well under a minute and produces a 257 MB image.
 
 ### B4. Build the index
 
+The `-v` flag maps **your folder** onto the fixed name **`/books`** inside the
+container, read-only. Only the first path is yours to change. Check it resolves
+before indexing, since an empty folder indexes into an empty library:
+
+```bash
+podman run --rm -v /srv/cookbooks:/books:ro,Z pantry-chef ls /books
+```
+
+With the books listed, index them:
+
 ```bash
 podman run --rm \
   -v /srv/cookbooks:/books:ro,Z \
@@ -346,16 +356,49 @@ sudo mv /tmp/cookbooks/* /srv/cookbooks/                     # on the server
 sudo chmod -R a+r /srv/cookbooks
 ```
 
-### C3. Get the app and point it at your books
+### C3. Get the app and map your books into it
 
 ```bash
 git clone https://github.com/rnvegter/pantry-chef.git ~/pantry-chef
 cd ~/pantry-chef
+```
+
+A container cannot see the server's disk. Your cookbook folder is *mapped* in
+under a fixed name:
+
+| | |
+|---|---|
+| **On the server** | where you put the books in C2, e.g. `/srv/cookbooks` |
+| ⇩ mapped to ⇩ | |
+| **Inside the container** | always `/books`, read-only |
+
+Only the server-side path is yours to set. `/books` is what the app is told to
+look in, and every command below says `/books`.
+
+```bash
 echo "BOOKS=/srv/cookbooks" > .env
 ```
 
-`compose.yaml` reads `BOOKS` for the read-only book mount. A `.env` file beside
-it is picked up automatically, so you do not have to export it every time.
+Compose reads `.env` automatically. Use an absolute path with no trailing slash,
+and quote it if it contains spaces.
+
+Point at the folder that holds the books, not at individual files — sub-folders
+are searched, so a library organised by author or shelf works unchanged.
+
+**Verify the mapping before indexing.** An empty folder indexes without error
+and leaves you with an empty library, which is a confusing thing to debug later:
+
+```bash
+docker compose run --rm pantry-chef ls /books
+```
+
+The books should be listed. If nothing comes back, the path in `.env` is wrong
+or unreadable — `sudo chmod -R a+r /srv/cookbooks` fixes the common case. After
+editing `.env`, recreate the container so the new mount takes effect:
+
+```bash
+docker compose up -d --force-recreate
+```
 
 ### C4. Start it
 

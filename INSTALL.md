@@ -214,19 +214,98 @@ git clone https://github.com/rnvegter/pantry-chef.git
 cd pantry-chef
 ```
 
-### D3. Tell it where your cookbooks are
+### D3. Point it at your cookbooks
+
+This is the step that catches people out, so it is worth being precise about
+what is happening.
+
+A container cannot see your disk. Your cookbook folder has to be *mapped* into
+it — handed through under a fixed name that the app looks for:
+
+| | |
+|---|---|
+| **On your machine** | wherever your books actually live, e.g. `/Users/you/Books/Cookbooks` |
+| ⇩ mapped to ⇩ | |
+| **Inside the container** | always `/books`, read-only |
+
+**Only the left-hand side is yours to change.** `/books` is the name the app is
+told to look in; every command in this guide says `/books` and none of them
+should be edited.
+
+Set your side of the mapping in a `.env` file, which Compose reads
+automatically:
 
 ```bash
 echo "BOOKS=$HOME/Books/Cookbooks" > .env
 ```
 
-`compose.yaml` reads `BOOKS` and mounts that folder read-only. A `.env` file
-beside it is picked up automatically, so you never have to export it.
+Use the real, absolute path to the folder that holds your ebooks:
 
-> **macOS and Windows:** Docker runs Linux in a VM, and only shared paths reach
-> it. Your home directory is shared by default; if your books live somewhere
-> else — an external drive, say — add that path in Docker Desktop under
-> *Settings → Resources → File sharing* first.
+```bash
+# macOS / Linux — a folder in your home directory
+echo "BOOKS=$HOME/Books/Cookbooks" > .env
+
+# macOS — an external drive
+echo "BOOKS=/Volumes/Media/Cookbooks" > .env
+
+# Linux server
+echo "BOOKS=/srv/cookbooks" > .env
+
+# Windows, from a WSL terminal
+echo "BOOKS=/mnt/c/Users/You/Documents/Cookbooks" > .env
+```
+
+If the path contains spaces, quote it — `BOOKS="/Users/you/My Books/Cookbooks"`.
+Do not put a trailing slash on it.
+
+**Point at the top folder, not at each book.** Sub-folders are searched too, so
+a library organised by author or by shelf works as it is:
+
+```
+Cookbooks/                 ← point BOOKS at this
+├── Baking/
+│   └── The Scone Queen Bakes.epub
+├── Ottolenghi/
+│   └── Simple.epub
+└── Dont Think About Dinner.epub
+```
+
+`.epub`, `.kepub`, `.pdf`, `.mobi`, `.azw`, `.azw3` and `.prc` are picked up.
+Anything else is ignored, as are hidden folders, so the `.caltrash` and
+`.DS_Store` clutter a Calibre library leaves behind causes no trouble.
+
+**Check the mapping before you go further.** This lists what the container can
+actually see:
+
+```bash
+docker compose run --rm pantry-chef ls /books
+```
+
+Your books should be listed. If instead you get nothing back, the mapping is
+wrong — see the table below before continuing, because indexing an empty folder
+looks like success and produces an empty library.
+
+| What you see | What it means | Fix |
+|---|---|---|
+| Your books, listed | The mapping works | Carry on to D4 |
+| Nothing listed | The path does not exist. Docker quietly *creates* a missing bind-mount source as an empty folder rather than complaining, which is precisely how you end up with an empty library and no error | Run `cat .env`, then `ls` that exact path on your own machine |
+| `no such file or directory` | Same cause, said out loud — Podman refuses instead of inventing the folder | As above |
+| Nothing listed, but the path is definitely right | macOS or Windows: the folder is outside the area shared with Docker's VM | Add it under Docker Desktop → Settings → Resources → File sharing |
+| `Permission denied` | The folder is not readable by other users | `chmod -R a+r /path/to/books` |
+| Some books listed, others not | The missing ones are in an unsupported format | Convert them with Calibre |
+
+After changing `.env`, recreate the container so it picks the new path up —
+editing the file alone does not move a running mount:
+
+```bash
+docker compose up -d --force-recreate
+```
+
+> **macOS and Windows only.** Docker runs Linux in a VM, and only shared paths
+> reach it. Your home directory is shared by default, so `~/Books/…` works out
+> of the box. A path outside it — an external drive, another volume — must be
+> added first in Docker Desktop under **Settings → Resources → File sharing**,
+> otherwise `/books` comes back empty however correct `.env` looks.
 
 ### D4. Build and start it
 
@@ -361,7 +440,37 @@ cd pantry-chef
 podman build -t pantry-chef -f Containerfile .
 ```
 
-### E3. Build the index
+### E3. Point it at your cookbooks
+
+Podman takes the mapping on the command line rather than from a file. The `-v`
+flag reads **`your folder`** `:` **`the name inside`** `:` **`options`**:
+
+```
+-v ~/Books/Cookbooks:/books:ro
+   └────────┬───────┘ └──┬─┘ └┬┘
+    your books      always  read-only
+                    /books
+```
+
+Change only the first part. `/books` is the name the app is told to look in, and
+`ro` is what guarantees the container can never modify your library.
+
+Point it at the folder that *holds* your books, not at individual files —
+sub-folders are searched too, so a library organised by author works as it is.
+`.epub`, `.kepub`, `.pdf`, `.mobi`, `.azw`, `.azw3` and `.prc` are picked up;
+hidden folders are skipped.
+
+Check the mapping before indexing, because an empty folder indexes "successfully"
+into an empty library:
+
+```bash
+podman run --rm -v ~/Books/Cookbooks:/books:ro pantry-chef ls /books
+```
+
+Your books should be listed. Nothing listed means the path is wrong, or — on
+macOS — that it is outside the directory shared with the Podman VM; see E1.
+
+### E4. Build the index
 
 ```bash
 podman run --rm \
@@ -373,7 +482,7 @@ podman run --rm \
 Add `,Z` to the books mount on SELinux systems (Fedora, RHEL):
 `-v ~/Books/Cookbooks:/books:ro,Z`.
 
-### E4. Run it
+### E5. Run it
 
 ```bash
 podman run -d --name pantry-chef \
@@ -385,7 +494,7 @@ podman run -d --name pantry-chef \
 
 Then open **http://127.0.0.1:8077**.
 
-### E5. Day to day and upgrading
+### E6. Day to day and upgrading
 
 ```bash
 podman logs -f pantry-chef              # follow the log
@@ -580,7 +689,7 @@ pip install -e ".[all]"          # uv:   uv pip install -e ".[all]"
 ```
 
 Container routes upgrade differently — see [D8](#d8-upgrade) for Docker and
-[E5](#e5-day-to-day-and-upgrading) for Podman.
+[E6](#e6-day-to-day-and-upgrading) for Podman.
 
 If an update changes how recipes are parsed, re-read your books to pick up the
 improvements:
