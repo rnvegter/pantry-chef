@@ -49,8 +49,33 @@
 
 .combo { position: relative; }
 /* Browsing the whole list needs a scroll; six authors do not, six hundred
-   recipe titles do. */
-.suggest { max-height: 264px; overflow-y: auto; }
+   recipe titles do. The scrollbar is styled rather than left to the platform
+   because macOS hides overlay scrollbars until you are already scrolling —
+   so a long list looks exactly like a short one that has been cut off, and
+   there is nothing to tell you the rest is there. */
+.suggest {
+  position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 4px);
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 9px; box-shadow: 0 8px 24px rgba(0,0,0,.10);
+  max-height: 264px;
+  /* overflow-x clips the rows to the rounded corners; overflow-y must stay
+     auto, and a shorthand `overflow: hidden` here would silently kill it. */
+  overflow-x: hidden;
+  overflow-y: auto;
+  /* Reaching the end of the list should not start scrolling the page behind it. */
+  overscroll-behavior: contain;
+  scrollbar-width: thin;                        /* Firefox */
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+.suggest::-webkit-scrollbar { width: 11px; }
+.suggest::-webkit-scrollbar-track { background: transparent; }
+.suggest::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border-radius: 999px;
+  /* A transparent border insets the thumb from the panel edge. */
+  border: 3px solid var(--surface);
+}
+.suggest::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 .combo.pick input { padding-right: 34px; }
 .combo.pick .caret {
   position: absolute; right: 5px; bottom: 5px; width: 28px; height: 28px;
@@ -62,11 +87,6 @@
 .combo.pick .caret:hover { color: var(--accent); background: var(--accent-soft); }
 .combo.pick input[aria-expanded="true"] ~ .caret svg { transform: rotate(180deg); }
 
-.suggest {
-  position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 4px);
-  background: var(--surface); border: 1px solid var(--line);
-  border-radius: 9px; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,.10);
-}
 .suggest div { padding: 7px 11px; cursor: pointer; display: flex;
   justify-content: space-between; gap: 12px; font-size: 14px; }
 .suggest div:hover, .suggest div[aria-selected="true"] { background: var(--accent-soft); }

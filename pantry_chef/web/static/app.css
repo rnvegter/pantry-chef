@@ -16,6 +16,7 @@
   /* Text laid on top of a filled accent or danger surface. In dark mode the
      accent is a light green, so white on it would be unreadable. */
   --on-accent: #ffffff; --on-bad: #ffffff;
+  --scroll-thumb: #c9cdbf;
   --radius: 12px;
 }
 @media (prefers-color-scheme: dark) {
@@ -26,6 +27,7 @@
     --warn: #e2be76; --warn-soft: #2f2715;
     --bad: #ea9382; --bad-soft: #331f1b;
     --on-accent: #13170f; --on-bad: #13170f;
+    --scroll-thumb: #4a5140;
   }
 }
 * { box-sizing: border-box; }
