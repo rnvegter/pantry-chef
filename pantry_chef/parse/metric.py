@@ -93,18 +93,18 @@ LIQUIDS: frozenset[str] = frozenset({
 def _round_ml(value: float) -> int:
     """Round millilitres to something a cook would actually measure."""
     if value < 20:
-        return int(round(value))
+        return round(value)
     if value < 100:
-        return int(round(value / 5) * 5)
+        return round(value / 5) * 5
     if value < 1000:
-        return int(round(value / 10) * 10)
+        return round(value / 10) * 10
     return int(round(value / 50) * 50)
 
 
 def _round_g(value: float) -> int:
     """Round grams likewise."""
     if value < 20:
-        return int(round(value))
+        return round(value)
     if value < 100:
         return int(round(value / 5) * 5)
     if value < 1000:
@@ -214,7 +214,7 @@ def to_metric_line(raw: str) -> str:
     if not raw or not raw.strip():
         return raw
 
-    leading_quantity, leading_unit, _ = parse_quantity(raw)
+    _quantity, leading_unit, _rest = parse_quantity(raw)
     # Teaspoons and tablespoons are used worldwide, and "1 tbsp salt" is far
     # more useful to a cook than "18 g salt". Leave them exactly as written.
     if leading_unit in ("tsp", "tbsp"):
@@ -323,7 +323,7 @@ def _round_cm(value: float) -> str:
     if value < 5:
         rounded = round(value * 2) / 2
         return f"{rounded:.1f}".rstrip("0").rstrip(".")
-    return str(int(round(value)))
+    return str(round(value))
 
 
 def _weight_sub(match: re.Match[str]) -> str:

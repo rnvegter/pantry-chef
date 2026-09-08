@@ -12,8 +12,9 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).parent))
 
-import make_fixtures                       # noqa: E402
-from pantry_chef.index import ingest            # noqa: E402
+import make_fixtures
+
+from pantry_chef.index import ingest
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -159,7 +160,8 @@ def test_book_text_is_never_interpolated_unescaped():
 
     static = Path(__file__).resolve().parents[1] / "pantry_chef" / "web" / "static"
     # Fields carrying text that originated in a book.
-    risky = re.compile(r"\$\{[^}]*\b\w+\.(display|canonical|name|value|title|book|section)\b[^}]*\}")
+    risky = re.compile(
+        r"\$\{[^}]*\b\w+\.(display|canonical|name|value|title|book|section)\b[^}]*\}")
 
     offenders = []
     for script in sorted(static.glob("*.js")):
@@ -181,9 +183,9 @@ def test_a_poisoned_book_reaches_the_api_as_inert_text(tmp_path):
     testing against something real."""
     import zipfile
 
+    from pantry_chef.db import connect as db_connect
     from pantry_chef.index import ingest
     from pantry_chef.search import Query, search
-    from pantry_chef.db import connect as db_connect
 
     payload = "2 cups flour &lt;img src=x onerror=alert(1)&gt;"
     doc = ('<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html>'

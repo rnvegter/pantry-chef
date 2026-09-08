@@ -9,9 +9,12 @@ extracts it and caches the bytes; every later request is a file read.
 from __future__ import annotations
 
 import hashlib
+import logging
 import posixpath
 import zipfile
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 CACHE_DIR_NAME = "image-cache"
 
@@ -80,6 +83,11 @@ def _from_pdf(book_path: str, image_ref: str) -> tuple[bytes, str] | None:
         with pymupdf.open(book_path) as doc:
             extracted = doc.extract_image(xref)
     except Exception:
+        # Swallowed on purpose — one unreadable photo must not break the page —
+        # but logged, or a book that has lost every image looks the same as a
+        # book that never had any.
+        logger.warning("could not read image %s from %s", image_ref, book_path,
+                       exc_info=True)
         return None
     if not extracted or not extracted.get("image"):
         return None
@@ -112,6 +120,11 @@ def downscale(data: bytes) -> tuple[bytes, str] | None:
             pixmap = pymupdf.Pixmap(pymupdf.csRGB, pixmap)
         return pixmap.tobytes("jpeg", jpg_quality=JPEG_QUALITY), "image/jpeg"
     except Exception:
+        # Falling back to the original bytes is correct, so this is not an
+        # error for the reader — but if it starts happening to every photo the
+        # log is the only place that would say so.
+        logger.warning("could not downscale an image; serving it unchanged",
+                       exc_info=True)
         return None
 
 

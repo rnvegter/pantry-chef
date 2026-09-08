@@ -33,7 +33,13 @@ _VULGAR = "".join(VULGAR_FRACTIONS)
 
 # A quantity: optional whole part, optional fraction (ascii or vulgar),
 # optionally a range ("2-3", "2 to 3").
-_QTY_ATOM = rf"(?:{_NUMBER}\s*{_FRACTION}|{_NUMBER}\s*[{_VULGAR}]|{_FRACTION}|[{_VULGAR}]|{_NUMBER})"
+_QTY_ATOM = (
+    rf"(?:{_NUMBER}\s*{_FRACTION}"      # 1 1/2
+    rf"|{_NUMBER}\s*[{_VULGAR}]"        # 1½
+    rf"|{_FRACTION}"                    # 1/2
+    rf"|[{_VULGAR}]"                    # ½
+    rf"|{_NUMBER})"                     # 45
+)
 _QTY_RE = re.compile(
     rf"^\s*(?P<qty>{_QTY_ATOM})"
     rf"(?:\s*(?:-|–|—|to|or)\s*(?P<qty2>{_QTY_ATOM}))?",

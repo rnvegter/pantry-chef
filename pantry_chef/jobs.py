@@ -17,9 +17,9 @@ import threading
 import time
 import uuid
 from collections import deque
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from collections.abc import Iterable, Sequence
 from typing import Any
 
 from . import db
@@ -300,7 +300,7 @@ class IndexJobManager:
                     + (f", {report.skipped} unchanged" if report.skipped else "")
                     + (f", {report.failed} failed" if report.failed else "")
                 )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — surfaced as a failed job
             with self._lock:
                 self._state.status = "failed"
                 self._state.finished_at = time.time()

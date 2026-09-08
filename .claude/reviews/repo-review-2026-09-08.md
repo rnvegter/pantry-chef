@@ -7,9 +7,8 @@ working tree is clean, so there were no uncommitted changes to review.
 **Decision**: **BLOCK** — one CRITICAL chain had to be fixed before this was
 exposed to any network.
 
-**Status**: C1, H1 and H2 were fixed and verified in commit following this
-review; see *Resolution* at the end. M1 was fixed alongside them. M2–M4 and the
-LOW findings remain open.
+**Status**: all CRITICAL, HIGH and MEDIUM findings are fixed and verified; see
+*Resolution* at the end. The three LOW findings remain open by choice.
 
 ## Summary
 
@@ -196,7 +195,42 @@ unit, Quadlet file and `compose.yaml` now set `PANTRY_CHEF_BROWSE_ROOTS`.
 - pages load external scripts and contain no inline `<script>`
 - browsing refuses `/etc`, `/` and traversal, and still allows home
 
+### Second pass — the MEDIUM findings
+
+**M2 — silent swallows.** Five of the nine blind excepts already surfaced their
+error to the user or re-raised, and were left alone. The four that vanished now
+log: `images.py` at warning (a photo failing is worth knowing about), the
+per-image PDF loop and the malformed-markup path at debug (high volume, low
+signal). Each remaining blind except carries `# noqa: BLE001` and the reason,
+so the rule stays on and every exemption is a stated decision.
+
+**M3 — column interpolated into SQL.** `_complete_book_column` now resolves the
+column through a whitelist and raises `ValueError` on anything else. Tested with
+`"title FROM books; DROP TABLE recipes--"`.
+
+**M4 — no linter or type checker.** `ruff` and `mypy` are configured in
+`pyproject.toml` and added to the `dev` extra. Both are clean.
+
+Working the lint list down turned up two things worth recording:
+
+1. **`ruff --fix` damaged the code.** SIM905 rewrote five multi-line word lists
+   in `lexicon.py` into single-line literals, one of them 4,353 characters — in
+   the file a person edits by hand most often. Reverted, and SIM905 is now
+   ignored with that reason written down. Autofixes were reviewed rather than
+   trusted after that.
+2. **SIM118 would have introduced a bug.** It flagged `"col" in row.keys()` on
+   a `sqlite3.Row`, suggesting `"col" in row` — but `in` on a Row searches its
+   *values*, so the checks would silently have become False and three fields
+   would have fallen back to defaults on a database that has the columns. Kept,
+   with a `noqa` explaining why.
+
+mypy also found a latent bug rather than only style: `int(cursor.lastrowid)` in
+`insert_recipes`, where `lastrowid` is `int | None`, would raise `TypeError`
+rather than anything diagnosable if an insert ever returned no row id. It now
+raises a named error.
+
 ## Still open
 
-M2 (silent `except Exception` in `images.py`), M3 (column interpolated into SQL
-in `_complete_book_column`), M4 (no linter or type checker), and L1–L3.
+L1 (`_build_filters` at 134 lines), L2 (`index.html` size — reduced by moving
+the script out, but still large), and L3 (magic numbers). All style, none
+behavioural, and left deliberately.

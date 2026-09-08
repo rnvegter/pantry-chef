@@ -106,7 +106,9 @@ SOY: frozenset[str] = frozenset({
 
 SESAME: frozenset[str] = frozenset({"sesame seed", "sesame oil", "tahini", "hummus", "zaatar"})
 
-MUSTARD: frozenset[str] = frozenset({"mustard", "dijon mustard", "mustard seed", "wholegrain mustard"})
+MUSTARD: frozenset[str] = frozenset({
+    "mustard", "dijon mustard", "mustard seed", "wholegrain mustard",
+})
 
 CELERY: frozenset[str] = frozenset({"celery", "celeriac", "celery salt"})
 

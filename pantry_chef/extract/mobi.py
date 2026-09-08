@@ -8,13 +8,21 @@ from __future__ import annotations
 
 import pathlib
 import shutil
+from types import ModuleType
 
 from .blocks import Block, blocks_from_html, renumber
 
-try:
-    import mobi as _mobi  # type: ignore
-except ImportError:  # pragma: no cover - optional dependency
-    _mobi = None
+
+def _load_backend() -> ModuleType | None:
+    """The `mobi` package if installed; Kindle support is optional."""
+    try:
+        import mobi
+    except ImportError:  # pragma: no cover - optional dependency
+        return None
+    return mobi
+
+
+_mobi = _load_backend()
 
 
 class MobiUnavailable(RuntimeError):

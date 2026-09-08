@@ -179,7 +179,8 @@ def search(conn: sqlite3.Connection, query: Query) -> tuple[list[SearchResult], 
 
 
 def _build_filters(conn: sqlite3.Connection, query: Query,
-                   skip_facet: str | None = None) -> tuple[str, list[str], list[object], dict, dict]:
+                   skip_facet: str | None = None,
+                   ) -> tuple[str, list[str], list[object], dict, dict]:
     """Assemble the FROM clause, WHERE fragments and parameters for a query.
 
     `skip_facet` leaves out one facet kind's own filter. Counting facets needs
@@ -494,9 +495,12 @@ def _build_result(
         cuisine=cuisine,
         diets=sorted(diets),
         allergens=sorted(allergens),
-        diet_caveats=row["diet_caveats"] if "diet_caveats" in row.keys() else "",
-        n_unknown=int(row["n_unknown"]) if "n_unknown" in row.keys() else 0,
-        image_ref=row["image_ref"] if "image_ref" in row.keys() else "",
+        # `.keys()` is required here: `in` on a sqlite3.Row searches its
+        # *values*, so dropping it would quietly make every one of these False
+        # and fall back to the defaults on a database that has the columns.
+        diet_caveats=row["diet_caveats"] if "diet_caveats" in row.keys() else "",  # noqa: SIM118
+        n_unknown=int(row["n_unknown"]) if "n_unknown" in row.keys() else 0,  # noqa: SIM118
+        image_ref=row["image_ref"] if "image_ref" in row.keys() else "",  # noqa: SIM118
         n_core=int(row["n_core"]),
         n_matched=int(row["n_matched"]),
         score=float(row["score"]),

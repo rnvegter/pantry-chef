@@ -110,8 +110,8 @@ FRONT_MATTER = [
     ("Copyright", ["First published in 2019. All rights reserved.",
                    "No part of this book may be reproduced without permission."]),
     ("Introduction", [
-        "I wrote this book for the weeknight cook who has twenty minutes and "
-        "half an onion. Every recipe here has been tested in a small kitchen.",
+        ("I wrote this book for the weeknight cook who has twenty minutes and "
+         "half an onion. Every recipe here has been tested in a small kitchen."),
         "You will need a heavy pan, a sharp knife and very little else.",
     ]),
     ("Contents", ["Chicken", "Pasta", "Slow Cooking", "Baking", "Puddings"]),

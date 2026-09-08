@@ -276,7 +276,9 @@ def build_parser() -> argparse.ArgumentParser:
         prog="pantry-chef",
         description="Pantry Chef — search your cookbook library by what is in your kitchen.",
     )
-    parser.add_argument("--db", help="database file (default: $PANTRY_CHEF_DB or data/pantry-chef.db)")
+    parser.add_argument(
+        "--db",
+        help="database file (default: $PANTRY_CHEF_DB or data/pantry-chef.db)")
     parser.add_argument("--no-colour", action="store_true", help="disable coloured output")
 
     # The same flags again on every subcommand, so `pantry search --db x` works
@@ -317,7 +319,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_search.add_argument("--diet",
                           help="vegetarian, vegan, pescatarian, 'no red meat' "
                                "(comma-separated; all must hold)")
-    p_search.add_argument("--free-from",
+    p_search.add_argument(
+        "--free-from",
                           help="allergens to exclude: gluten, milk, egg, nuts, "
                                "peanuts, fish, crustaceans, molluscs, soy, "
                                "sesame, celery, mustard, sulphites")

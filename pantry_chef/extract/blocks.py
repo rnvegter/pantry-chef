@@ -6,9 +6,12 @@ ever sees Blocks. That keeps format quirks out of the recipe logic.
 
 from __future__ import annotations
 
+import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from html.parser import HTMLParser
+
+logger = logging.getLogger(__name__)
 
 # Structural roles the segmenter cares about.
 HEADING = "heading"
@@ -159,7 +162,7 @@ class _HTMLBlockParser(HTMLParser):
         if not self._skip_depth:
             self._buf.append(data)
 
-    def close(self) -> None:  # type: ignore[override]
+    def close(self) -> None:
         super().close()
         self._flush()
 
@@ -171,8 +174,11 @@ def blocks_from_html(html: str, doc: int = 0) -> list[Block]:
         parser.feed(html)
         parser.close()
     except Exception:
-        # Malformed markup is common in older ebooks; keep whatever parsed.
-        pass
+        # Malformed markup is common in older ebooks, so keeping whatever
+        # parsed is the right call — but say so, because a document that dies
+        # early yields a short block list and no other trace.
+        logger.debug("stopped parsing a document early on malformed markup",
+                     exc_info=True)
     return parser.blocks
 
 

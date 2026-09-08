@@ -36,8 +36,15 @@ _DURATION_RE = re.compile(
 
 # Labels that introduce a time figure.
 _TOTAL_LABELS = r"total time|total|ready in|ready|takes|time in total|overall|from start to finish"
-_ACTIVE_LABELS = r"prep(?:aration)? time|prep|hands[- ]on(?: time)?|active(?: time)?|work(?:ing)? time"
-_PASSIVE_LABELS = r"cook(?:ing)? time|cook|bake|baking(?: time)?|oven(?: time)?|inactive|resting|rest|chill(?:ing)?|marinat(?:e|ing)|rising|proving|proof(?:ing)?"
+_ACTIVE_LABELS = (
+    r"prep(?:aration)? time|prep|hands[- ]on(?: time)?"
+    r"|active(?: time)?|work(?:ing)? time"
+)
+_PASSIVE_LABELS = (
+    r"cook(?:ing)? time|cook|bake|baking(?: time)?|oven(?: time)?"
+    r"|inactive|resting|rest|chill(?:ing)?|marinat(?:e|ing)"
+    r"|rising|proving|proof(?:ing)?"
+)
 
 _LABEL_RE = re.compile(
     rf"\b(?P<label>{_TOTAL_LABELS}|{_ACTIVE_LABELS}|{_PASSIVE_LABELS})\b",
@@ -94,8 +101,8 @@ def parse_duration(text: str) -> int | None:
         minutes = _value(m.group("h")) * 60
         if m.group("hm"):
             minutes += _value(m.group("hm"))
-        return int(round(minutes))
-    return int(round(_value(m.group("m"))))
+        return round(minutes)
+    return round(_value(m.group("m")))
 
 
 def all_durations(text: str) -> list[int]:
@@ -109,7 +116,7 @@ def all_durations(text: str) -> list[int]:
         else:
             minutes = _value(m.group("m"))
         if 0 < minutes <= 60 * 72:
-            out.append(int(round(minutes)))
+            out.append(round(minutes))
     return out
 
 

@@ -7,20 +7,36 @@ book's modal body size first, then judge every line against it.
 
 from __future__ import annotations
 
+import logging
 from collections import Counter
+from types import ModuleType
 
 from .blocks import IMAGE, Block, clean_metadata, renumber, tidy
 
 # Below this, page artwork is a rule or a logo rather than a photograph.
 MIN_IMAGE_BYTES = 15_000
 
-try:
-    import pymupdf  # type: ignore
-except ImportError:  # pragma: no cover - optional dependency
+def _load_backend() -> ModuleType | None:
+    """PyMuPDF if it is installed, under either of the names it ships as.
+
+    PDF support is optional, so absence is a normal outcome rather than an
+    error — the reader raises PDFUnavailable when it is actually needed.
+    """
     try:
-        import fitz as pymupdf  # type: ignore
-    except ImportError:
-        pymupdf = None
+        import pymupdf
+    except ImportError:  # pragma: no cover - optional dependency
+        try:
+            import fitz
+        except ImportError:
+            return None
+        return fitz
+    return pymupdf
+
+
+pymupdf = _load_backend()
+
+
+logger = logging.getLogger(__name__)
 
 
 class PDFUnavailable(RuntimeError):
@@ -78,6 +94,10 @@ def read_pdf(path: str, max_pages: int | None = None) -> tuple[list[Block], dict
                 try:
                     extracted = doc.extract_image(xref)
                 except Exception:
+                    # Debug rather than warning: a book can hold hundreds of
+                    # images and a few unreadable ones are unremarkable.
+                    logger.debug("skipping image xref %s on page %s of %s",
+                                 xref, page_no, path, exc_info=True)
                     continue
                 size = len(extracted.get("image", b"")) if extracted else 0
                 if size > best_size:

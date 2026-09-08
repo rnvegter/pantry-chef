@@ -16,10 +16,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from make_fixtures import _xhtml                    # noqa: E402
-from pantry_chef.db import connect, stats                # noqa: E402
-from pantry_chef.index import ingest                     # noqa: E402
-from pantry_chef.search import Query, search             # noqa: E402
+from make_fixtures import _xhtml
+
+from pantry_chef.db import connect, stats
+from pantry_chef.index import ingest
+from pantry_chef.search import Query, search
 
 PROTEINS = ["chicken thighs", "chicken breast", "pork belly", "beef shin", "lamb shoulder",
             "salmon fillets", "cod loin", "prawns", "tofu", "chickpeas", "lentils",
@@ -69,7 +70,7 @@ def make_recipe(rng: random.Random) -> dict:
         unit = rng.choice(UNITS)
         amount = rng.choice([1, 2, 3, 4, 200, 300, 400, 500]) if unit in ("g", "ml") \
             else rng.randint(1, 4)
-        lines.append(f"{amount}{' ' if unit else ' '}{unit} {item}".strip())
+        lines.append(f"{amount} {unit} {item}".strip())
     lines.append("Salt and freshly ground black pepper")
 
     prep, cook = rng.choice([5, 10, 15, 20, 25]), rng.choice([10, 15, 20, 30, 45, 60, 90])
@@ -164,7 +165,7 @@ def main(n_books: int, per_book: int, workdir: Path) -> None:
         timings = []
         for _ in range(10):
             t0 = time.perf_counter()
-            results, info = search(conn, query)
+            results, _info = search(conn, query)
             timings.append((time.perf_counter() - t0) * 1000)
         print(f"  {label:26} {statistics.median(timings):7.1f} ms   "
               f"{len(results):3d} results")

@@ -15,7 +15,7 @@ import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
 
-from .models import Book, Recipe, RecipeIngredient
+from .models import Book, Recipe
 
 SCHEMA_VERSION = 5
 
@@ -370,6 +370,13 @@ def complete_titles(conn: sqlite3.Connection, prefix: str,
     return [(row["title"], int(row["n"])) for row in rows]
 
 
+# The only columns of `books` the completion query may search. A column name
+# cannot be a bound parameter, so it is interpolated — and interpolating
+# anything that came from outside would be an injection. Callers pass a key
+# from this mapping, never a string of their own.
+_COMPLETABLE_COLUMNS = {"author": "author", "title": "title"}
+
+
 def complete_authors(conn: sqlite3.Connection, fragment: str,
                      limit: int = 8) -> list[tuple[str, int]]:
     """Authors whose name contains `fragment`, with their recipe counts."""
@@ -391,6 +398,14 @@ def _complete_book_column(conn: sqlite3.Connection, column: str,
     prefix matters — people type "Ottolenghi" for a book called
     "Simple: A Cookbook by Yotam Ottolenghi".
     """
+    try:
+        column = _COMPLETABLE_COLUMNS[column]
+    except KeyError:
+        raise ValueError(
+            f"{column!r} is not a completable column; "
+            f"expected one of {sorted(_COMPLETABLE_COLUMNS)}"
+        ) from None
+
     fragment = fragment.strip()
     # An empty fragment is a request to browse, not a mistake: the dropdown
     # opens with the whole list so you can pick rather than guess a spelling.
@@ -508,6 +523,8 @@ def insert_recipes(
              len(recipe.ingredients), len(core),
              recipe.n_unknown, recipe.diet_caveats, recipe.image_ref),
         )
+        if cursor.lastrowid is None:                    # pragma: no cover
+            raise RuntimeError("the recipe insert returned no row id")
         recipe_id = int(cursor.lastrowid)
         recipe.id = recipe_id
 
@@ -568,7 +585,7 @@ def refresh_ingredient_counts(conn: sqlite3.Connection) -> None:
 
 def stats(conn: sqlite3.Connection) -> dict[str, int | float]:
     """Headline numbers for the CLI and the web UI."""
-    def one(sql: str, default: int | float = 0) -> int | float:
+    def one(sql: str, default: float = 0) -> int | float:
         row = conn.execute(sql).fetchone()
         return (row[0] if row and row[0] is not None else default)
 

@@ -11,34 +11,60 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from pantry_chef.db import connect, stats                                  # noqa: E402
-from pantry_chef.extract import format_of, is_supported, read_book         # noqa: E402
-from pantry_chef.images import downscale, load_image                  # noqa: E402
-from pantry_chef.extract.blocks import blocks_from_html                    # noqa: E402
-from pantry_chef.index import ingest                                       # noqa: E402
-from pantry_chef.db import (                                          # noqa: E402
-    add_source, complete_authors, complete_book_titles, complete_titles,
-    list_sources, remove_source, tag_counts,
+from pantry_chef.db import (
+    _complete_book_column,
+    add_source,
+    complete_authors,
+    complete_book_titles,
+    complete_titles,
+    connect,
+    list_sources,
+    remove_source,
+    stats,
+    tag_counts,
 )
-from pantry_chef.extract.blocks import clean_metadata                 # noqa: E402
-from pantry_chef.jobs import (                                             # noqa: E402
-    IndexJobManager, diagnose, diagnose_empty, inspect_folder, list_directories,
+from pantry_chef.extract import format_of, is_supported, read_book
+from pantry_chef.extract.blocks import (
+    blocks_from_html,
+    clean_metadata,
 )
-from pantry_chef.models import display_title, split_steps                  # noqa: E402
-from pantry_chef.parse import diet                                         # noqa: E402
-from pantry_chef.parse.classify import difficulty                          # noqa: E402
-from pantry_chef.parse.metric import (                                     # noqa: E402
-    book_metric, convert_amount, convert_text, to_metric_line,
+from pantry_chef.images import downscale, load_image
+from pantry_chef.index import ingest
+from pantry_chef.jobs import (
+    IndexJobManager,
+    diagnose,
+    diagnose_empty,
+    inspect_folder,
+    list_directories,
 )
-from pantry_chef.parse.classify import classify, classify_cuisine, classify_meal  # noqa: E402
-from pantry_chef.parse.ingredients import (                                # noqa: E402
-    canonicalize, ingredient_score, is_title_case, parse_ingredient_line,
+from pantry_chef.models import display_title, split_steps
+from pantry_chef.parse import diet
+from pantry_chef.parse.classify import (
+    classify_cuisine,
+    classify_meal,
+    difficulty,
 )
-from pantry_chef.parse.quantities import parse_quantity                    # noqa: E402
-from pantry_chef.parse.segment import find_recipes                         # noqa: E402
-from pantry_chef.parse.timing import extract_time                          # noqa: E402
-from pantry_chef.search import (                                      # noqa: E402
-    Query, facet_counts, get_recipe, search, suggest_ingredients,
+from pantry_chef.parse.ingredients import (
+    canonicalize,
+    ingredient_score,
+    is_title_case,
+    parse_ingredient_line,
+)
+from pantry_chef.parse.metric import (
+    book_metric,
+    convert_amount,
+    convert_text,
+    to_metric_line,
+)
+from pantry_chef.parse.quantities import parse_quantity
+from pantry_chef.parse.segment import find_recipes
+from pantry_chef.parse.timing import extract_time
+from pantry_chef.search import (
+    Query,
+    facet_counts,
+    get_recipe,
+    search,
+    suggest_ingredients,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -486,7 +512,8 @@ def test_hidden_allergen_sources(ingredients, allergen):
 
 
 @pytest.mark.parametrize("ingredients,expected", [
-    (["red lentil", "onion", "coconut milk"], {"vegetarian", "vegan", "pescatarian", "no red meat"}),
+    (["red lentil", "onion", "coconut milk"],
+     {"vegetarian", "vegan", "pescatarian", "no red meat"}),
     (["linguine", "parmesan", "basil"], {"vegetarian", "pescatarian", "no red meat"}),
     (["salmon", "lemon", "dill"], {"pescatarian", "no red meat"}),
     (["chicken", "carrot"], {"no red meat"}),
@@ -927,6 +954,7 @@ def test_pool_is_refused_when_main_cannot_be_reimported(monkeypatch):
     """A caller that spawn cannot re-import must fall back to serial parsing
     without ever starting a worker, since spawning re-runs its top level."""
     import sys as _sys
+
     from pantry_chef import index as index_module
 
     class FakeMain:
@@ -1206,3 +1234,48 @@ def test_facet_counts_match_the_results_they_describe(indexed_db):
         results, _info = search(
             conn, replace(base, meals=[meal], dedupe=False, auto_relax=False))
         assert len(results) == expected, meal
+
+
+# --- failures are swallowed on purpose, but never silently ------------------
+
+def test_an_unreadable_photo_is_logged_not_swallowed(caplog, tmp_path):
+    """Returning None is right — one bad image must not break the page — but a
+    book that has lost every photo has to look different in the log from a book
+    that never had any."""
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="pantry_chef.images"):
+        assert load_image(str(tmp_path / "nope.epub"), "x.jpg") is None
+    # A missing file is an expected outcome, not something to shout about.
+    assert not caplog.records
+
+    book = tmp_path / "broken.epub"
+    book.write_bytes(b"not a zip")
+    with caplog.at_level(logging.WARNING, logger="pantry_chef.images"):
+        assert load_image(str(book), "images/x.jpg") is None
+    # Unreadable *content* is worth a line.
+    assert not caplog.records or "could not read" in caplog.text
+
+
+def test_a_failed_downscale_is_logged_and_falls_back(caplog):
+    """The fallback serves the original bytes, which is correct — so the log is
+    the only place a systematic failure would show."""
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="pantry_chef.images"):
+        assert downscale(b"this is not an image") is None
+    assert "could not downscale" in caplog.text
+
+
+# --- the completion query cannot be pointed at another column --------------
+
+def test_completion_column_is_whitelisted(indexed_db):
+    """The column name cannot be a bound parameter, so it is interpolated —
+    which is only safe while callers cannot choose it."""
+    conn = connect(indexed_db, read_only=True)
+    assert complete_authors(conn, "cook")          # the real path still works
+
+    for attempt in ("title FROM books; DROP TABLE recipes--",
+                    "path", "author, (SELECT path FROM books)"):
+        with pytest.raises(ValueError, match="not a completable column"):
+            _complete_book_column(conn, attempt, "x", 5)

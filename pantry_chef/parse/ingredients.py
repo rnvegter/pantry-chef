@@ -81,7 +81,7 @@ def singularize(word: str) -> str:
         return _IRREGULAR_SINGULARS[lower]
     if len(lower) <= 3 or not lower.endswith("s"):
         return lower
-    if lower.endswith("ss") or lower.endswith("us") or lower.endswith("is"):
+    if lower.endswith(("ss", "us", "is")):
         return lower
     if lower.endswith("ies"):
         return lower[:-3] + "y"

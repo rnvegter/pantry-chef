@@ -9,8 +9,10 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query as Q
+from fastapi import FastAPI, HTTPException
+from fastapi import Query as Q
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -19,14 +21,22 @@ from .. import db
 from ..config import db_path
 from ..images import load_image
 from ..jobs import (
-    browse_roots, diagnose, diagnose_empty, inspect_folder, list_directories,
+    browse_roots,
+    diagnose,
+    diagnose_empty,
+    inspect_folder,
+    list_directories,
     manager,
 )
 from ..models import display_title, split_steps
 from ..parse.classify import difficulty
 from ..parse.metric import convert_text, to_metric_line
 from ..search import (
-    Query, facet_counts, get_recipe, search, suggest_ingredients,
+    Query,
+    facet_counts,
+    get_recipe,
+    search,
+    suggest_ingredients,
 )
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -42,7 +52,7 @@ NO_CACHE = {"Cache-Control": "no-cache"}
 # injected event handler, which is why the page scripts live in .js files
 # rather than inline. Inline *styles* are still allowed: they cannot execute,
 # and the pages lean on style attributes for layout.
-CONTENT_SECURITY_POLICY = "; ".join([
+CONTENT_SECURITY_POLICY = "; ".join([  # noqa: FLY002 — one directive per line
     "default-src 'self'",
     "script-src 'self'",
     "style-src 'self' 'unsafe-inline'",
@@ -323,7 +333,7 @@ def api_stats() -> JSONResponse:
     """Headline numbers about the indexed library."""
     conn = get_conn()
     try:
-        data = db.stats(conn)
+        data: dict[str, Any] = dict(db.stats(conn))
         # Facets for the filter controls: only offer what the library holds.
         data["meals"] = [
             {"name": v, "recipes": n} for v, n in db.tag_counts(conn, "meal")

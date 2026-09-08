@@ -12,7 +12,6 @@ import hashlib
 import os
 import sys
 import time
-import traceback
 from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -99,7 +98,7 @@ def parse_one(path_str: str, min_confidence: float = 0.4) -> BookResult:
         result.recipes = recipes
         result.seconds = time.perf_counter() - started
         return result
-    except Exception as exc:  # a bad file must not stop the run
+    except Exception as exc:  # noqa: BLE001 — a bad file must not stop the run
         return BookResult(
             path=str(path),
             sha256="",
@@ -146,7 +145,7 @@ def pool_usable(workers: int) -> bool:
     try:
         with ProcessPoolExecutor(max_workers=min(2, workers)) as pool:
             return bool(pool.submit(_canary).result(timeout=60))
-    except Exception:
+    except Exception:  # noqa: BLE001 — any failure here means "no pool"
         return False
 
 
@@ -262,7 +261,8 @@ def ingest(
                     done += 1
                     try:
                         result = future.result()
-                    except Exception as exc:
+                    except Exception as exc:  # noqa: BLE001 — a crashed
+                        # worker is reported as a failed book, not a dead run.
                         result = BookResult(
                             path=futures[future], sha256="", size_bytes=0,
                             format="", error=f"worker crashed: {exc}",

@@ -420,7 +420,8 @@ metric conversion, title casing and step splitting, photo extraction and
 downscaling, block parsing, segmentation
 across all three book shapes, ingest, resumability, schema migration, failure
 isolation and diagnosis, background indexing jobs, search ranking, every filter,
-and the HTTP API end to end.
+and the HTTP API end to end. `ruff` and `mypy` are configured and clean; both
+run from the `dev` extra.
 
 The fixtures are generated, not shipped: `tests/make_fixtures.py` builds the
 same five recipes as a well-structured EPUB, a loosely-structured EPUB and a

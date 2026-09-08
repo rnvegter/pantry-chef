@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 
-from ..extract.blocks import HEADING, IMAGE, LIST_ITEM, Block
+from ..extract.blocks import IMAGE, LIST_ITEM, Block
 from ..models import Recipe, RecipeIngredient
 from .classify import classify
 from .diet import profile as diet_profile
@@ -113,9 +113,10 @@ def _looks_like_title(block: Block) -> bool:
     # A sentence is prose, not a title.
     if text.endswith((".", "!", "?")) and len(words) > 4:
         return False
-    if words[0].lower().rstrip(",.") in COOKING_VERBS and not block.is_heading:
-        return False
-    return True
+    # A line opening with a cooking verb is an instruction, not a name —
+    # unless the book set it as a heading.
+    return not (words[0].lower().rstrip(",.") in COOKING_VERBS
+                and not block.is_heading)
 
 
 def find_ingredient_runs(blocks: list[Block]) -> list[tuple[int, int]]:
