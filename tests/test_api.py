@@ -150,7 +150,116 @@ def test_retrying_a_missing_file_is_404(client):
     assert response.status_code == 404
 
 
-def test_browse_lists_directories(client):
+def test_book_text_is_never_interpolated_unescaped():
+    """Ingredient text comes out of a book nobody vetted and is written into
+    the page with innerHTML, so every interpolation of it must go through
+    esc(). A missed one is a stored XSS: an entity-encoded tag in an ingredient
+    line survives parsing and executes when the recipe is rendered."""
+    import re
+
+    static = Path(__file__).resolve().parents[1] / "pantry_chef" / "web" / "static"
+    # Fields carrying text that originated in a book.
+    risky = re.compile(r"\$\{[^}]*\b\w+\.(display|canonical|name|value|title|book|section)\b[^}]*\}")
+
+    offenders = []
+    for script in sorted(static.glob("*.js")):
+        for number, line in enumerate(script.read_text().splitlines(), 1):
+            # textContent assigns a string, it does not parse markup, so an
+            # interpolation there is inert and needs no escaping.
+            if ".textContent" in line:
+                continue
+            for match in risky.finditer(line):
+                if "esc(" not in match.group(0):
+                    offenders.append(f"{script.name}:{number}: {match.group(0)}")
+
+    assert not offenders, "unescaped book text reaches the page:\n" + "\n".join(offenders)
+
+
+def test_a_poisoned_book_reaches_the_api_as_inert_text(tmp_path):
+    """The parser does not sanitise, and should not — escaping belongs at the
+    point of rendering. This pins the payload's shape so the guard above is
+    testing against something real."""
+    import zipfile
+
+    from pantry_chef.index import ingest
+    from pantry_chef.search import Query, search
+    from pantry_chef.db import connect as db_connect
+
+    payload = "2 cups flour &lt;img src=x onerror=alert(1)&gt;"
+    doc = ('<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html>'
+           '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>x</title></head>'
+           '<body><h2>Poisoned Loaf</h2><p>Serves 4 | Total time: 30 minutes</p>'
+           f'<h3>Ingredients</h3><ul><li>{payload}</li>'
+           '<li>200 ml whole milk</li><li>2 large eggs</li><li>1 tsp fine salt</li>'
+           '</ul><h3>Method</h3><p>Mix it.</p><p>Bake for 25 minutes.</p></body></html>')
+    opf = ('<package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
+           'unique-identifier="i"><metadata '
+           'xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Poisoned</dc:title>'
+           '<dc:identifier id="i">x</dc:identifier></metadata><manifest>'
+           '<item id="d" href="d.xhtml" media-type="application/xhtml+xml"/>'
+           '</manifest><spine><itemref idref="d"/></spine></package>')
+    container = ('<container version="1.0" '
+                 'xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles>'
+                 '<rootfile full-path="OEBPS/content.opf" '
+                 'media-type="application/oebps-package+xml"/></rootfiles></container>')
+
+    books = tmp_path / "books"
+    books.mkdir()
+    with zipfile.ZipFile(books / "poisoned.epub", "w") as zf:
+        zf.writestr("mimetype", "application/epub+zip")
+        zf.writestr("META-INF/container.xml", container)
+        zf.writestr("OEBPS/content.opf", opf)
+        zf.writestr("OEBPS/d.xhtml", doc)
+
+    database = tmp_path / "poisoned.db"
+    ingest([books], database, workers=1, force=True)
+    results, _info = search(db_connect(database, read_only=True),
+                            Query(have=["milk"], max_missing=9))
+    displays = [i.display for r in results for i in r.ingredients]
+    assert any("<img" in d for d in displays), "the payload should reach the API intact"
+
+
+def test_security_headers_are_set(client):
+    """The policy must forbid inline script, or an injected event handler
+    still runs even when a sink is escaped."""
+    headers = client.get("/").headers
+    csp = headers["content-security-policy"]
+    assert "script-src 'self'" in csp
+    assert "'unsafe-inline'" not in csp.split("script-src")[1].split(";")[0]
+    assert "default-src 'self'" in csp
+    assert headers["x-content-type-options"] == "nosniff"
+
+    # Including on errors, which is where headers usually go missing.
+    assert "content-security-policy" in client.get("/api/recipe/999999").headers
+
+
+def test_browsing_is_confined(client, tmp_path):
+    """The picker is for finding your cookbooks, not for reading the disk."""
+    for outside in ("/etc", "/", "/var/log"):
+        listed = client.get("/api/library/browse", params={"path": outside}).json()
+        assert not listed["ok"], outside
+
+    # ... and inspect must refuse the same paths, or adding a source would be
+    # the way around the limit.
+    assert not client.post("/api/library/inspect", json={"path": "/etc"}).json()["ok"]
+    assert client.post("/api/library/sources", json={"path": "/etc"}).status_code == 400
+
+
+def test_browsing_allows_home(client):
+    listed = client.get("/api/library/browse",
+                        params={"path": str(Path.home())}).json()
+    assert listed["ok"]
+
+
+def test_browse_refuses_traversal_out_of_a_root(client):
+    escape = str(Path.home()) + "/../../etc"
+    assert not client.get("/api/library/browse", params={"path": escape}).json()["ok"]
+
+
+def test_browse_lists_directories(client, monkeypatch):
+    # The fixtures live outside home, so open that root explicitly — which is
+    # the documented escape hatch for a server whose books sit in /srv.
+    monkeypatch.setenv("PANTRY_CHEF_BROWSE_ROOTS", str(FIXTURES.parent))
     data = client.get("/api/library/browse",
                       params={"path": str(FIXTURES.parent)}).json()
     assert data["ok"]
@@ -160,8 +269,20 @@ def test_browse_lists_directories(client):
 def test_pages_are_served(client):
     assert "Pantry" in client.get("/").text
     assert "Add a folder" in client.get("/library").text
-    assert "Directions" in client.get("/recipe/1").text
+    assert "Pantry Chef" in client.get("/recipe/1").text
     assert client.get("/static/app.css").status_code == 200
+
+
+def test_page_scripts_are_external(client):
+    """The Content-Security-Policy forbids inline script, so the pages must
+    load theirs from a file — an inline block would silently stop running."""
+    for page, script in (("/", "search.js"),
+                         ("/library", "library.js"),
+                         ("/recipe/1", "recipe.js")):
+        html = client.get(page).text
+        assert "<script>" not in html, page
+        assert f'/static/{script}' in html, page
+        assert client.get(f"/static/{script}").status_code == 200
 
 
 # --- the recipe card -------------------------------------------------------

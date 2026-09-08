@@ -11,6 +11,7 @@ missing optional dependency -- and each has a concrete fix the user can apply.
 
 from __future__ import annotations
 
+import os
 import re
 import threading
 import time
@@ -18,6 +19,7 @@ import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 from . import db
@@ -310,10 +312,61 @@ class IndexJobManager:
 manager = IndexJobManager()
 
 
+# --- where the folder picker is allowed to look ---------------------------
+
+# The picker exists to find your cookbooks, and it answered for any path on the
+# machine — a listing of /etc or a home directory is not something a recipe app
+# should hand out, and anyone who reaches the port could ask. Browsing is now
+# confined to a small set of roots.
+ENV_BROWSE_ROOTS = "PANTRY_CHEF_BROWSE_ROOTS"
+
+
+def browse_roots(extra: Iterable[str | Path] = ()) -> list[Path]:
+    """Directories the folder picker may look inside.
+
+    Your home directory, every folder already registered as a source, and
+    anything listed in $PANTRY_CHEF_BROWSE_ROOTS — which is how a server whose
+    books live somewhere like /srv/cookbooks opens that path up.
+    """
+    candidates: list[Path] = [Path.home()]
+    configured = os.environ.get(ENV_BROWSE_ROOTS, "")
+    candidates += [Path(part).expanduser()
+                   for part in configured.split(os.pathsep) if part.strip()]
+    candidates += [Path(item).expanduser() for item in extra]
+
+    roots: list[Path] = []
+    for candidate in candidates:
+        try:
+            roots.append(candidate.resolve())
+        except OSError:
+            continue
+    return roots
+
+
+def is_browsable(path: str | Path, roots: Sequence[Path]) -> bool:
+    """Whether a path sits inside one of the allowed roots.
+
+    Resolved first, so a symlink cannot be used to step outside.
+    """
+    try:
+        resolved = Path(path).expanduser().resolve()
+    except (OSError, RuntimeError):
+        return False
+    return any(resolved == root or root in resolved.parents for root in roots)
+
+
+_OUTSIDE = ("that folder is outside the places Pantry Chef may look. "
+            "It can browse your home directory and any folder you have already "
+            "added; set PANTRY_CHEF_BROWSE_ROOTS to allow somewhere else.")
+
+
 # --- folder inspection, for the "add a folder" flow ------------------------
 
-def inspect_folder(path: str | Path) -> dict[str, Any]:
+def inspect_folder(path: str | Path,
+                   roots: Sequence[Path] | None = None) -> dict[str, Any]:
     """Check a candidate folder and count the books it holds."""
+    if roots is not None and not is_browsable(path, roots):
+        return {"ok": False, "error": _OUTSIDE}
     folder = Path(path).expanduser()
     if not folder.exists():
         return {"ok": False, "error": "that path does not exist"}
@@ -343,7 +396,8 @@ def inspect_folder(path: str | Path) -> dict[str, Any]:
     }
 
 
-def list_directories(path: str | Path | None) -> dict[str, Any]:
+def list_directories(path: str | Path | None,
+                     roots: Sequence[Path] | None = None) -> dict[str, Any]:
     """List sub-folders, so the page can offer a simple browser.
 
     A browser cannot hand a server a filesystem path, so the user either types
@@ -354,6 +408,8 @@ def list_directories(path: str | Path | None) -> dict[str, Any]:
         folder = folder.resolve()
         if not folder.is_dir():
             folder = folder.parent
+        if roots is not None and not is_browsable(folder, roots):
+            return {"ok": False, "error": _OUTSIDE, "path": str(folder)}
         entries = []
         for child in sorted(folder.iterdir(), key=lambda c: c.name.lower()):
             if child.name.startswith("."):
@@ -366,9 +422,14 @@ def list_directories(path: str | Path | None) -> dict[str, Any]:
     except (OSError, PermissionError) as exc:
         return {"ok": False, "error": str(exc), "path": str(folder)}
 
+    # Only offer a way back up while the parent is still somewhere we may look.
+    parent = folder.parent if folder.parent != folder else None
+    if parent is not None and roots is not None and not is_browsable(parent, roots):
+        parent = None
+
     return {
         "ok": True,
         "path": str(folder),
-        "parent": str(folder.parent) if folder.parent != folder else None,
+        "parent": str(parent) if parent else None,
         "directories": entries[:500],
     }

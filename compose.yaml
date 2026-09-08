@@ -35,6 +35,8 @@ services:
       - pantry-chef-data:/data
     environment:
       PANTRY_CHEF_DB: /data/pantry-chef.db
+      # The folder picker may only look inside these; /books is the mount.
+      PANTRY_CHEF_BROWSE_ROOTS: /books
     restart: unless-stopped
 
 volumes:

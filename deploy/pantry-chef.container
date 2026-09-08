@@ -23,6 +23,8 @@ Volume=/srv/cookbooks:/books:ro,Z
 # The index and photo cache.
 Volume=pantry-chef-data:/data
 Environment=PANTRY_CHEF_DB=/data/pantry-chef.db
+# The folder picker is confined; /books is where the library is mounted.
+Environment=PANTRY_CHEF_BROWSE_ROOTS=/books
 
 [Service]
 Restart=always

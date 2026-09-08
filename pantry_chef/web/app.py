@@ -18,7 +18,10 @@ from pydantic import BaseModel, Field
 from .. import db
 from ..config import db_path
 from ..images import load_image
-from ..jobs import diagnose, diagnose_empty, inspect_folder, list_directories, manager
+from ..jobs import (
+    browse_roots, diagnose, diagnose_empty, inspect_folder, list_directories,
+    manager,
+)
 from ..models import display_title, split_steps
 from ..parse.classify import difficulty
 from ..parse.metric import convert_text, to_metric_line
@@ -33,6 +36,31 @@ STATIC_DIR = Path(__file__).parent / "static"
 # afternoon of wondering why an edit did not appear.
 NO_CACHE = {"Cache-Control": "no-cache"}
 
+# A recipe's text comes out of a book nobody here vetted, so the page is
+# written to escape it — and this is the second line, for the sink that gets
+# missed. `script-src 'self'` without 'unsafe-inline' is what actually stops an
+# injected event handler, which is why the page scripts live in .js files
+# rather than inline. Inline *styles* are still allowed: they cannot execute,
+# and the pages lean on style attributes for layout.
+CONTENT_SECURITY_POLICY = "; ".join([
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data:",
+    "connect-src 'self'",
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+])
+
+SECURITY_HEADERS = {
+    "Content-Security-Policy": CONTENT_SECURITY_POLICY,
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+}
+
+
 
 def _page(name: str) -> FileResponse:
     return FileResponse(STATIC_DIR / name, headers=NO_CACHE)
@@ -40,6 +68,15 @@ def _page(name: str) -> FileResponse:
 
 
 app = FastAPI(title="Pantry Chef", docs_url="/api/docs", redoc_url=None)
+
+
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    """Apply the security headers to every response, including errors."""
+    response = await call_next(request)
+    for header, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(header, value)
+    return response
 
 
 def get_conn() -> sqlite3.Connection:
@@ -388,22 +425,34 @@ def api_library() -> JSONResponse:
         conn.close()
 
 
+def _picker_roots() -> list[Path]:
+    """Where the folder picker may look: home, plus folders already added."""
+    conn = get_writable_conn()
+    try:
+        registered = [row["path"] for row in db.list_sources(conn)]
+    finally:
+        conn.close()
+    return browse_roots(registered)
+
+
 @app.post("/api/library/inspect")
 def api_inspect(request: SourceRequest) -> JSONResponse:
     """Check a folder before adding it, and report what is inside."""
-    return JSONResponse(inspect_folder(request.path))
+    return JSONResponse(inspect_folder(request.path, roots=_picker_roots()))
 
 
 @app.get("/api/library/browse")
 def api_browse(path: str = Q(default="")) -> JSONResponse:
     """List sub-folders, so a path can be picked rather than typed."""
-    return JSONResponse(list_directories(path or None))
+    return JSONResponse(list_directories(path or None, roots=_picker_roots()))
 
 
 @app.post("/api/library/sources")
 def api_add_source(request: SourceRequest) -> JSONResponse:
     """Add a folder to the library."""
-    info = inspect_folder(request.path)
+    # Checked again here rather than trusting the browse step: adding a source
+    # is what widens the picker, so it must not be the way around the limit.
+    info = inspect_folder(request.path, roots=_picker_roots())
     if not info.get("ok"):
         raise HTTPException(status_code=400, detail=info.get("error", "invalid path"))
 

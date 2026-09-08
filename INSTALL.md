@@ -592,6 +592,14 @@ If you would rather add folders through the interface than the command line,
 skip the indexing step entirely: start the app, go to **Library**, and add a
 folder there.
 
+The folder picker only looks inside your home directory and folders you have
+already added. If your books live elsewhere — an external drive, say — name
+that path first:
+
+```bash
+export PANTRY_CHEF_BROWSE_ROOTS=/Volumes/Media
+```
+
 ---
 
 ## Where your data lives

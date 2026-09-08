@@ -1,0 +1,154 @@
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
+  c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+const recipeId = Number(location.pathname.split("/").pop());
+const params = new URLSearchParams(location.search);
+let units = params.get("units") || "metric";
+const have = params.get("have") || "";
+
+const ICONS = {
+  servings: `<svg width="26" height="26" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+    <path d="M6 2v9M4 2v4a2 2 0 0 0 4 0V2M6 11v11"/>
+    <path d="M17 2c-1.5 2-2 4-2 6s.5 3 2 3 2-1 2-3-.5-4-2-6zM17 11v11"/></svg>`,
+  time: `<svg width="26" height="26" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+    <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`,
+  difficulty: `<svg width="26" height="26" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
+    <path d="M6 20h12v-3H6zM6 17c-2.5-1-4-3-4-5.5A5.5 5.5 0 0 1 8.5 6a4.8 4.8 0 0 1 7 0
+       A5.5 5.5 0 0 1 22 11.5c0 2.5-1.5 4.5-4 5.5"/></svg>`,
+  count: `<svg width="26" height="26" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+    <path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>`,
+};
+
+// Most specific first: a dessert filed under "lunch" should read as dessert.
+const MEAL_PRIORITY = ["dessert", "breakfast", "snack", "side", "dinner", "lunch"];
+
+function chooseCategory(r) {
+  // The meal type leads, because it is derived and consistent. A book's own
+  // chapter heading sounds better when it is real, but in practice many are
+  // placeholders ("Chapter 3") or, worse, the previous recipe's title picked
+  // up as a heading — so it is only a fallback.
+  for (const meal of MEAL_PRIORITY) {
+    if ((r.meals || []).includes(meal)) return meal;
+  }
+  const section = (r.section || "").trim();
+  const useless = /^(chapter|part|section)\s*[\divxlc]*$/i.test(section);
+  if (section && !useless && section.length <= 40) return section;
+  return "Recipe";
+}
+
+function fmtTime(m, estimate) {
+  if (m == null) return "—";
+  const text = m < 60 ? m + " min"
+    : (m % 60 ? Math.floor(m / 60) + " h " + (m % 60) + " min" : m / 60 + " h");
+  return estimate ? "~" + text : text;
+}
+
+async function load() {
+  const query = new URLSearchParams({ units });
+  if (have) query.set("have", have);
+
+  let r;
+  try {
+    const res = await fetch(`/api/recipe/${recipeId}?` + query);
+    if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+    r = await res.json();
+  } catch (err) {
+    document.getElementById("page").innerHTML =
+      `<div class="empty">${esc(err.message)}</div>`;
+    return;
+  }
+
+  document.title = r.title + " · Pantry Chef";
+  const category = chooseCategory(r);
+
+  const tags = [
+    ...(r.cuisine ? [r.cuisine] : []),
+    ...(r.diets || []).filter(d => d === "vegetarian" || d === "vegan"),
+  ].map(t => `<span class="tag">${esc(t)}</span>`);
+  if (r.allergens && r.allergens.length)
+    tags.push(`<span class="tag warn">contains ${r.allergens.map(esc).join(", ")}</span>`);
+
+  const ingredients = (r.ingredients || []).map(i => {
+    const classes = [i.have ? "have" : "", i.staple ? "staple" : ""].filter(Boolean).join(" ");
+    return `<li class="${classes}">${esc(i.line || i.display)}${
+      i.staple ? `<span class="why">store cupboard</span>` : ""}</li>`;
+  }).join("");
+
+  const steps = (r.steps || []).length
+    ? `<ol>${r.steps.map(s => `<li>${esc(s)}</li>`).join("")}</ol>`
+    : `<p class="note">No method was captured for this recipe — see the book, page ${r.page || "?"}.</p>`;
+
+  const caveat = [
+    r.diet_caveats || "",
+    r.n_unknown ? `${r.n_unknown} ingredient${r.n_unknown > 1 ? "s" : ""} not recognised, so the allergen list may be incomplete` : "",
+  ].filter(Boolean).join(" · ");
+
+  document.getElementById("page").innerHTML = `
+    <div class="card-page">
+      <div class="eyebrow">${esc(category)}</div>
+      <h2 class="recipe-title">${esc(r.title)}</h2>
+      <div class="byline">
+        from <b>${esc(r.book)}</b>${r.page ? `, page ${r.page}` : ""}
+      </div>
+
+      <div class="tags">${tags.join("")}</div>
+
+      ${r.has_image ? `<img class="hero" id="heroImage" src="${esc(r.image_url)}"
+           alt="${esc(r.title)}" loading="lazy">` : ""}
+
+      <div class="facts">
+        <div>${ICONS.servings}<div class="k">Servings</div>
+          <div class="v">${esc(r.servings || "—")}</div></div>
+        <div>${ICONS.time}<div class="k">Time</div>
+          <div class="v">${esc(fmtTime(r.total_minutes, r.time_is_estimate))}</div></div>
+        <div>${ICONS.difficulty}<div class="k">Difficulty</div>
+          <div class="v">${esc(r.difficulty || "—")}</div></div>
+        <div>${ICONS.count}<div class="k">Ingredients</div>
+          <div class="v">${(r.ingredients || []).length}</div></div>
+      </div>
+
+      <div class="columns">
+        <div class="ingredients">
+          <h2>Ingredients</h2>
+          <ul>${ingredients}</ul>
+        </div>
+        <div class="directions">
+          <h2>Directions</h2>
+          ${steps}
+        </div>
+      </div>
+
+      ${caveat ? `<div class="source" style="color:var(--warn)">${esc(caveat)}</div>` : ""}
+
+      <div class="tools">
+        <span class="note">Amounts shown in ${units === "metric" ? "metric" : "the book's original units"}.</span>
+        <button class="ghost" id="units">Show ${units === "metric" ? "original units" : "metric"}</button>
+        <button class="ghost" id="print">Print</button>
+      </div>
+
+      <div class="source">
+        <b>${esc(r.book)}</b>${r.page ? ` · page ${r.page}` : ""}
+        ${r.time_is_estimate ? " · time is estimated, not stated in the book" : ""}
+      </div>
+    </div>`;
+
+  // A photo that cannot be read should leave no gap; bound here rather than as
+  // an inline onerror, which the Content-Security-Policy forbids.
+  const hero = document.getElementById("heroImage");
+  if (hero) hero.addEventListener("error", () => hero.remove());
+
+  document.getElementById("units").onclick = () => {
+    units = units === "metric" ? "original" : "metric";
+    const next = new URLSearchParams(location.search);
+    next.set("units", units);
+    history.replaceState({}, "", location.pathname + "?" + next);
+    load();
+  };
+  document.getElementById("print").onclick = () => window.print();
+}
+
+load();

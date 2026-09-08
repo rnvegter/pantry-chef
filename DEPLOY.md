@@ -21,8 +21,24 @@ front of you, use **[INSTALL.md](INSTALL.md)** instead.
 > Every route below ends with that protection in place. Do not stop halfway.
 
 There is otherwise little to attack: no user accounts, no uploads, no
-shell-outs, and the app only ever reads your books. The exposure is your
-library, not your machine. That is still worth protecting.
+shell-outs, and the app only ever reads your books.
+
+An earlier version of this page claimed the exposure was "your library, not
+your machine". That was wrong, and worth correcting rather than quietly
+deleting: the folder picker used to list any directory on the host, so anyone
+who reached the port could read the shape of the filesystem. Browsing is now
+confined to your home directory, the folders you have already added, and
+anything named in `PANTRY_CHEF_BROWSE_ROOTS`. On a server whose books live
+outside home, set it in the unit or the container:
+
+```
+Environment=PANTRY_CHEF_BROWSE_ROOTS=/srv/cookbooks
+```
+
+Recipe text is also escaped before it reaches the page, and a
+Content-Security-Policy without `unsafe-inline` backs that up — a cookbook is
+an untrusted file, and one downloaded from the internet can carry markup in an
+ingredient line.
 
 ---
 
