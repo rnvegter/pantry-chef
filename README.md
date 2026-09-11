@@ -135,6 +135,33 @@ keeps its address, and a corrected time counts as known rather than estimated.
   make one ingredient, as they do in the book. The page says when a line of
   yours was folded in this way, and the editor keeps it as you typed it.
 
+## Shopping list
+
+**Add to shopping list** on a recipe page — at the number of servings you have
+set — or the basket on any search result puts a recipe on the list. The
+**Shopping** page then adds everything up:
+
+- **Totalled, honestly.** Amounts are read from the same metric, scaled lines
+  the recipe page shows and added where they genuinely add up: grams with
+  grams, millilitres with millilitres, eggs with eggs. Where they don't — four
+  cloves of garlic and a tablespoon of minced — both are shown rather than an
+  invented total, and each item can unfold into the lines it came from.
+- **In aisle order**: fruit & veg, bakery, meat, fish, dairy and chilled, dry
+  goods, tins and sauces, oils, herbs and spices, frozen, drinks. On the six
+  development cookbooks, all but about 2% of ingredient uses land in an aisle
+  rather than "Other".
+- **Store-cupboard staples** — salt, oil, flour, butter — are listed apart under
+  *Probably in your cupboard*, with amounts, so a recipe that needs a whole
+  block of butter still gets noticed.
+- **Tick things off** as they go in the basket; add things no recipe asked for
+  ("paper towels"); change a recipe's servings or take it off; **Copy as text**
+  for a message, or **Print**.
+
+The list lives in the index, not the browser, so the list you build on a laptop
+is the one on your phone in the shop. It is recomputed from its recipes each
+time, so correcting a recipe or changing its servings changes the list with
+it, and like favourites it survives a full re-index.
+
 ## The recipe card
 
 Every result links to its own page at `/recipe/<id>`, opened in a new tab so
@@ -292,6 +319,28 @@ never have to touch the CLI if you'd rather not.
   cookbook fails silently otherwise.
 
 Indexing runs in the background, so you can keep searching while it works.
+
+### Automatic indexing
+
+Drop a cookbook into one of your folders and it turns up in search on its own.
+Every five minutes the app looks through your library folders and indexes any
+book that is new or has changed; the progress shows on the Library page like
+any other run, marked as automatic. A switch on the Library page turns it off,
+and **Check now** looks straight away.
+
+It polls, rather than waiting for the operating system to announce changes,
+because libraries often live on a NAS where those announcements are unreliable
+— and looking at a few hundred files' sizes and dates takes milliseconds. Only
+new or changed books are read, and they are still hashed first, so a file
+that was touched but not changed costs a hash, never a parse. Two cautions are
+built in: a book modified in the last 30 seconds is left for the next look, so
+one still being copied in is not read half-written; and a folder that has gone
+missing (an unplugged drive, an unmounted share) is skipped. It only ever adds
+books — nothing is removed from the index because a file cannot be seen.
+
+`PANTRY_CHEF_AUTO_INDEX` sets the interval in minutes, or `off` to disable it
+for good on a server. It runs inside the web app, so it only works while
+`pantry-chef serve` (or the container) is running.
 
 ---
 
@@ -515,11 +564,11 @@ Worth knowing before you trust a result:
 .venv/bin/python -m pytest -q
 ```
 
-378 tests covering quantity parsing, ingredient canonicalisation, time
+439 tests covering quantity parsing, ingredient canonicalisation, time
 extraction, meal and cuisine classification, allergen and diet derivation,
 metric conversion, serving scaling, cook-mode timers, title casing and step
 splitting, photo extraction, downscaling and thumbnails, favourites, hand
-corrections, block parsing, segmentation
+corrections, the shopping list, automatic indexing, block parsing, segmentation
 across all three book shapes, ingest, resumability, schema migration, failure
 isolation and diagnosis, background indexing jobs, search ranking, every filter,
 and the HTTP API end to end. `ruff` and `mypy` are configured and clean; both

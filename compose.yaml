@@ -48,6 +48,9 @@ services:
       PANTRY_CHEF_DB: /data/pantry-chef.db
       # The folder picker may only look inside these; /books is the mount.
       PANTRY_CHEF_BROWSE_ROOTS: /books
+      # New books in /books are indexed on their own; the app looks every five
+      # minutes. Minutes between looks, or "off":
+      # PANTRY_CHEF_AUTO_INDEX: "30"
     restart: unless-stopped
 
 volumes:

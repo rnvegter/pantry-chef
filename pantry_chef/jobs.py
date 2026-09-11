@@ -135,6 +135,7 @@ class JobState:
 
     id: str = ""
     status: str = "idle"        # idle | running | done | cancelled | failed
+    origin: str = "manual"      # manual | automatic (the folder watcher)
     roots: list[str] = field(default_factory=list)
     started_at: float = 0.0
     finished_at: float = 0.0
@@ -156,6 +157,7 @@ class JobState:
         return {
             "id": self.id,
             "status": self.status,
+            "origin": self.origin,
             "roots": self.roots,
             "total": self.total,
             "done": self.done,
@@ -200,8 +202,14 @@ class IndexJobManager:
 
     def start(self, roots: list[str], db_path: str | Path, *,
               force: bool = False, min_confidence: float = 0.4,
-              workers: int | None = None) -> dict[str, Any]:
-        """Begin indexing. Raises RuntimeError if a job is already running."""
+              workers: int | None = None, sources: list[str] | None = None,
+              origin: str = "manual") -> dict[str, Any]:
+        """Begin indexing. Raises RuntimeError if a job is already running.
+
+        `roots` may be folders or single books. `sources` names the library
+        folders to mark as indexed afterwards, when `roots` are books picked
+        out of them rather than the folders themselves.
+        """
         with self._lock:
             if self._state.status == "running":
                 raise RuntimeError("an indexing run is already in progress")
@@ -210,6 +218,7 @@ class IndexJobManager:
             self._state = JobState(
                 id=uuid.uuid4().hex[:12],
                 status="running",
+                origin=origin,
                 roots=[str(r) for r in roots],
                 started_at=time.time(),
                 message="scanning folders…",
@@ -218,7 +227,8 @@ class IndexJobManager:
 
         self._thread = threading.Thread(
             target=self._run,
-            args=(list(roots), str(db_path), force, min_confidence, workers),
+            args=(list(roots), str(db_path), force, min_confidence, workers,
+                  list(sources) if sources is not None else list(roots)),
             daemon=True,
             name=f"pantry-index-{state.id}",
         )
@@ -265,7 +275,7 @@ class IndexJobManager:
                 state.message = f"indexing {state.current}"
 
     def _run(self, roots: list[str], db_path: str, force: bool,
-             min_confidence: float, workers: int | None) -> None:
+             min_confidence: float, workers: int | None, sources: list[str]) -> None:
         try:
             report = ingest(
                 roots, db_path,
@@ -277,8 +287,8 @@ class IndexJobManager:
             )
             conn = db.connect(db_path)
             try:
-                for root in roots:
-                    db.mark_source_indexed(conn, str(root))
+                for source in sources:
+                    db.mark_source_indexed(conn, str(source))
             finally:
                 conn.close()
 

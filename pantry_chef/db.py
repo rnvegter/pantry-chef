@@ -66,6 +66,33 @@ CREATE TABLE IF NOT EXISTS recipe_edits (
     PRIMARY KEY (book_path, title_key, occurrence)
 );
 
+-- The shopping list. Recipes on it are keyed like favourites, so a re-index
+-- does not empty it; `scale` is how many times the book's amounts to buy.
+-- The list lives in the index rather than the browser so the one you build
+-- on a laptop is the one on your phone in the shop.
+CREATE TABLE IF NOT EXISTS shopping_recipes (
+    book_path  TEXT NOT NULL,
+    title_key  TEXT NOT NULL,
+    occurrence INTEGER NOT NULL DEFAULT 1,
+    title      TEXT NOT NULL,              -- as it was shown, for reporting
+    scale      REAL NOT NULL DEFAULT 1,
+    added_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (book_path, title_key, occurrence)
+);
+-- Items ticked off, by ingredient: the list is recomputed from its recipes
+-- every time, so a tick belongs to "eggs", not to a row that may move.
+CREATE TABLE IF NOT EXISTS shopping_ticks (
+    item_key  TEXT PRIMARY KEY,
+    ticked_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+-- Things to buy that no recipe asked for: "paper towels".
+CREATE TABLE IF NOT EXISTS shopping_extras (
+    id       INTEGER PRIMARY KEY,
+    text     TEXT NOT NULL,
+    done     INTEGER NOT NULL DEFAULT 0,
+    added_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS books (
     id          INTEGER PRIMARY KEY,
     path        TEXT NOT NULL UNIQUE,
@@ -483,18 +510,22 @@ def title_key_sql(conn: sqlite3.Connection, alias: str = "r") -> str:
     return f"LOWER(TRIM({alias}.title))"
 
 
-def keyed_ids_sql(conn: sqlite3.Connection, table: str) -> str:
+KEYED_TABLES = ("favourites", "recipe_edits", "shopping_recipes")
+
+
+def keyed_ids_sql(conn: sqlite3.Connection, table: str, columns: str = "ranked.id") -> str:
     """SQL resolving every row of a keyed table to its recipe's id *now*.
 
-    `table` is favourites or recipe_edits. Only recipes whose book and title
-    match a stored key are ranked, so the window function runs over a handful
-    of rows rather than the whole library.
+    `table` is one of KEYED_TABLES. `columns` may add the stored row's own
+    fields, as `k.<name>`. Only recipes whose book and title match a stored
+    key are ranked, so the window function runs over a handful of rows rather
+    than the whole library.
     """
-    if table not in ("favourites", "recipe_edits"):
+    if table not in KEYED_TABLES:
         raise ValueError(f"{table!r} is not a keyed table")
     key = title_key_sql(conn)
     return f"""
-        SELECT ranked.id FROM (
+        SELECT {columns} FROM (
             SELECT r.id AS id, b.path AS path, {key} AS title_key,
                    ROW_NUMBER() OVER (
                        PARTITION BY r.book_id, {key}
@@ -560,6 +591,21 @@ def remove_favourite(conn: sqlite3.Connection, recipe_id: int) -> bool:
     )
     conn.commit()
     return cursor.rowcount > 0
+
+
+def get_setting(conn: sqlite3.Connection, key: str, default: str = "") -> str:
+    """A setting chosen in the app, kept in the meta table."""
+    row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+    return row[0] if row else default
+
+
+def set_setting(conn: sqlite3.Connection, key: str, value: str) -> None:
+    conn.execute(
+        "INSERT INTO meta(key, value) VALUES(?, ?)"
+        " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
+    conn.commit()
 
 
 def has_table(conn: sqlite3.Connection, name: str) -> bool:

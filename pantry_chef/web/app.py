@@ -14,12 +14,13 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException
+from fastapi import Path as PathParam
 from fastapi import Query as Q
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from .. import db, edits
+from .. import db, edits, shopping
 from ..config import db_path
 from ..images import load_image, version_tag
 from ..jobs import (
@@ -42,6 +43,7 @@ from ..search import (
     search,
     suggest_ingredients,
 )
+from ..watch import ENV_AUTO_INDEX, LibraryWatcher
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -92,8 +94,16 @@ async def _lifespan(_app: FastAPI):
     target = Path(db_path())
     if target.exists():
         db.connect(target).close()
-    yield
+    # Automatic indexing lives as long as the app. It is per-process, like the
+    # job manager it drives — one more reason the app runs as a single worker.
+    watcher.start()
+    try:
+        yield
+    finally:
+        watcher.stop()
 
+
+watcher = LibraryWatcher(manager, db_path)
 
 app = FastAPI(title="Pantry Chef", docs_url="/api/docs", redoc_url=None,
               lifespan=_lifespan)
@@ -276,8 +286,10 @@ def api_search(request: SearchRequest) -> JSONResponse:
         if info.get("relaxed_to") is not None:
             effective = replace(query, max_missing=info["relaxed_to"])
 
+        on_list = {entry["id"] for entry in shopping.entries(conn)}
         return JSONResponse({
-            "results": [_result_json(r) for r in results],
+            "results": [{**_result_json(r), "on_list": r.recipe_id in on_list}
+                        for r in results],
             "facets": facet_counts(conn, effective),
             "pantry": info["pantry"],
             "unknown": info["unknown"],
@@ -307,6 +319,8 @@ def api_recipe(recipe_id: int, have: str = Q(default="", max_length=2000),
             raise HTTPException(status_code=404, detail="no such recipe")
         data = _result_json(recipe, full=True, metric=(units != "original"), scale=scale)
         data["edit"] = edits.state(conn, recipe_id)
+        on_list = shopping.scale_on_list(conn, recipe_id)
+        data["shopping"] = {"scale": on_list} if on_list is not None else None
         return JSONResponse(data)
     finally:
         conn.close()
@@ -586,9 +600,39 @@ def api_library() -> JSONResponse:
                 for row in db.empty_books(conn)
             ],
             "job": manager.snapshot(),
+            "watch": watcher.status(),
         })
     finally:
         conn.close()
+
+
+class WatchRequest(BaseModel):
+    enabled: bool
+
+
+@app.get("/api/library/watch")
+def api_watch_status() -> JSONResponse:
+    """Automatic indexing: on or off, when it last looked, what it found."""
+    return JSONResponse({"watch": watcher.status(), "job": manager.snapshot()})
+
+
+@app.post("/api/library/watch")
+def api_set_watch(request: WatchRequest) -> JSONResponse:
+    """Switch automatic indexing on or off. Remembered in the index."""
+    if request.enabled and not watcher.minutes:
+        raise HTTPException(
+            status_code=409,
+            detail=f"automatic indexing is switched off on the server ({ENV_AUTO_INDEX}=off)")
+    watcher.set_enabled(request.enabled)
+    return JSONResponse(watcher.status())
+
+
+@app.post("/api/library/watch/check")
+def api_check_now() -> JSONResponse:
+    """Look for new books now rather than at the next scheduled look."""
+    started = watcher.check_once()
+    return JSONResponse({"started": len(started), "watch": watcher.status(),
+                         "job": manager.snapshot()})
 
 
 def _picker_roots() -> list[Path]:
@@ -698,6 +742,136 @@ def recipe_page(recipe_id: int) -> FileResponse:
 def library_page() -> FileResponse:
     """Serve the library management page."""
     return _page("library.html")
+
+
+@app.get("/shopping")
+def shopping_page() -> FileResponse:
+    """Serve the shopping list."""
+    return _page("shopping.html")
+
+
+# --- the shopping list ------------------------------------------------------------
+
+class ShoppingAdd(BaseModel):
+    scale: float = Field(default=1.0, gt=0, le=shopping.MAX_SCALE)
+
+
+class TickRequest(BaseModel):
+    ticked: bool
+
+
+class ExtraRequest(BaseModel):
+    text: str = Field(max_length=shopping.MAX_EXTRA_LENGTH)
+
+
+class ExtraDoneRequest(BaseModel):
+    done: bool
+
+
+def _shopping_read() -> sqlite3.Connection:
+    # The list is readable before any library exists: it is simply empty.
+    return get_writable_conn()
+
+
+@app.get("/api/shopping")
+def api_shopping() -> JSONResponse:
+    """The list: its recipes, their ingredients added up by aisle, and extras."""
+    conn = _shopping_read()
+    try:
+        return JSONResponse(shopping.build(conn))
+    finally:
+        conn.close()
+
+
+@app.get("/api/shopping/summary")
+def api_shopping_summary() -> JSONResponse:
+    """How many recipes are on the list, for the badge in the navigation."""
+    conn = _shopping_read()
+    try:
+        return JSONResponse(shopping.summary(conn))
+    finally:
+        conn.close()
+
+
+@app.put("/api/shopping/recipes/{recipe_id}")
+def api_shopping_add(recipe_id: int, request: ShoppingAdd) -> JSONResponse:
+    """Put a recipe on the list at a number of servings, or change them."""
+    conn = get_writable_conn()
+    try:
+        if not shopping.add(conn, recipe_id, request.scale):
+            raise HTTPException(status_code=404, detail="no such recipe")
+        return JSONResponse({"id": recipe_id, "scale": request.scale, **shopping.summary(conn)})
+    finally:
+        conn.close()
+
+
+@app.delete("/api/shopping/recipes/{recipe_id}")
+def api_shopping_remove(recipe_id: int) -> JSONResponse:
+    conn = get_writable_conn()
+    try:
+        if not shopping.remove(conn, recipe_id):
+            raise HTTPException(status_code=404, detail="no such recipe")
+        return JSONResponse({"id": recipe_id, "scale": None, **shopping.summary(conn)})
+    finally:
+        conn.close()
+
+
+@app.put("/api/shopping/ticks/{item_key}")
+def api_shopping_tick(request: TickRequest,
+                      item_key: str = PathParam(max_length=200)) -> JSONResponse:
+    """Tick an ingredient off, or back on."""
+    conn = get_writable_conn()
+    try:
+        shopping.tick(conn, item_key, request.ticked)
+        return JSONResponse({"key": item_key, "ticked": request.ticked})
+    finally:
+        conn.close()
+
+
+@app.post("/api/shopping/extras")
+def api_shopping_add_extra(request: ExtraRequest) -> JSONResponse:
+    """Add something to buy that no recipe asked for."""
+    conn = get_writable_conn()
+    try:
+        extra_id = shopping.add_extra(conn, request.text)
+    except ValueError as err:
+        raise HTTPException(status_code=422, detail=str(err)) from None
+    finally:
+        conn.close()
+    return JSONResponse({"id": extra_id})
+
+
+@app.patch("/api/shopping/extras/{extra_id}")
+def api_shopping_extra_done(extra_id: int, request: ExtraDoneRequest) -> JSONResponse:
+    conn = get_writable_conn()
+    try:
+        if not shopping.set_extra_done(conn, extra_id, request.done):
+            raise HTTPException(status_code=404, detail="no such item")
+        return JSONResponse({"id": extra_id, "done": request.done})
+    finally:
+        conn.close()
+
+
+@app.delete("/api/shopping/extras/{extra_id}")
+def api_shopping_remove_extra(extra_id: int) -> JSONResponse:
+    conn = get_writable_conn()
+    try:
+        if not shopping.remove_extra(conn, extra_id):
+            raise HTTPException(status_code=404, detail="no such item")
+        return JSONResponse({"id": extra_id})
+    finally:
+        conn.close()
+
+
+@app.delete("/api/shopping")
+def api_shopping_clear() -> JSONResponse:
+    """Start a new list."""
+    conn = get_writable_conn()
+    try:
+        shopping.clear(conn)
+        return JSONResponse(shopping.summary(conn))
+    finally:
+        conn.close()
 
 
 @app.get("/")

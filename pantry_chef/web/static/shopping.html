@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shopping list · Pantry Chef</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<link rel="stylesheet" href="/static/app.css">
+<style>
+/* Built to be used in a shop, on a phone, one-handed: big rows, the amount
+   where the eye lands, and ticked things greyed in place rather than jumping
+   away from under your thumb. */
+.shop-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+.shop-head h2 { font-size: 22px; margin: 0; }
+.shop-head .note { flex: 1; }
+.shop-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.shop-actions .danger:hover { border-color: var(--bad); color: var(--bad); }
+
+.on-list { list-style: none; margin: 0; padding: 0; }
+.on-list li {
+  display: flex; align-items: center; gap: 12px; padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.on-list li:last-child { border-bottom: 0; }
+.on-list .what { flex: 1; min-width: 0; }
+.on-list a { color: var(--ink); font-weight: 600; text-decoration: none; }
+.on-list a:hover { color: var(--accent); }
+.on-list .book { display: block; font-size: 12px; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stepper { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+.stepper button, .x {
+  width: 32px; height: 32px; padding: 0; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  font: inherit; font-size: 17px; line-height: 1;
+}
+.stepper button:hover:not(:disabled), .x:hover { border-color: var(--accent); color: var(--accent); }
+.stepper button:disabled { opacity: .35; cursor: default; }
+.stepper output { min-width: 5.5ch; text-align: center; font-size: 13px; }
+.stepper output b { font-size: 15px; font-variant-numeric: tabular-nums; }
+.x { color: var(--muted); font-size: 15px; flex: none; }
+.x:hover { border-color: var(--bad) !important; color: var(--bad) !important; }
+
+.aisle h3 {
+  font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted);
+  margin: 22px 0 4px; padding-bottom: 6px; border-bottom: 2px solid var(--line);
+}
+.aisle:first-child h3 { margin-top: 0; }
+.items { list-style: none; margin: 0; padding: 0; }
+.items li { border-bottom: 1px solid var(--line); }
+.items li:last-child { border-bottom: 0; }
+.items label {
+  display: flex; align-items: flex-start; gap: 14px; padding: 12px 2px; margin: 0;
+  font-size: 16px; text-transform: none; letter-spacing: 0; color: var(--ink); cursor: pointer;
+}
+.items input[type=checkbox] { flex: none; width: 22px; height: 22px; margin: 1px 0 0; accent-color: var(--accent); }
+.items .name { flex: 1; min-width: 0; }
+.items .name::first-letter { text-transform: uppercase; }
+.items .amount { flex: none; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; max-width: 45%; }
+.items .for { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+.items details { margin: -6px 0 10px 36px; font-size: 13px; color: var(--muted); }
+.items details summary { cursor: pointer; }
+.items details ul { margin: 6px 0 0; padding-left: 18px; }
+.items li.done .name, .items li.done .amount { color: var(--muted); text-decoration: line-through; }
+.items li.extra { display: flex; align-items: center; }
+.items li.extra label { flex: 1; }
+
+.cupboard > summary { cursor: pointer; font-weight: 600; }
+.cupboard > summary .note { font-weight: 400; margin-left: 6px; }
+.add-extra { display: flex; gap: 8px; margin-top: 14px; }
+.add-extra input { flex: 1; }
+.shop-msg { margin: 0 0 14px; }
+.shop-msg.bad { color: var(--bad); }
+
+@media print {
+  nav, .shop-actions, .add-extra, .stepper button, .x, .items details { display: none !important; }
+  .panel { border: 0; padding: 0; }
+  .items label { padding: 4px 0; font-size: 12pt; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1 class="brand">
+      <svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true">
+        <rect width="64" height="64" rx="15" fill="var(--accent)"/>
+        <g transform="translate(0 1.6)">
+          <rect fill="var(--on-accent)" x="21" y="17.4" width="22" height="5.2" rx="2.4"/>
+          <path fill="var(--on-accent)" d="M24.6 22.6h14.8c2.2 2.8 4.1 4.8 4.1 8.4v12A6.6 6.6 0 0 1 36.9 49.6H27.1A6.6 6.6 0 0 1 20.5 43V31c0-3.6 1.9-5.6 4.1-8.4z"/>
+          <rect fill="var(--accent)" x="22.6" y="35.2" width="18.8" height="2.1" rx="1.05"/>
+          <rect fill="var(--on-accent)" x="30.8" y="8.6" width="2.4" height="9.4" rx="1.2"/>
+          <path fill="var(--on-accent)" d="M31.6 12.6c-4.2-.4-7.3-4-6.9-8.2 4.2.4 7.3 4 6.9 8.2z"/>
+          <path fill="var(--on-accent)" d="M32.4 12.6c-.4-4.2 2.7-7.8 6.9-8.2.4 4.2-2.7 7.8-6.9 8.2z"/>
+        </g>
+      </svg>Pantry Chef<span>.</span></h1>
+    <nav>
+      <a href="/">Search</a>
+      <a href="/shopping" aria-current="page">Shopping <span class="nav-count" id="shopCount" hidden></span></a>
+      <a href="/library">Library</a>
+    </nav>
+  </header>
+
+  <div class="shop-head">
+    <h2>Shopping list</h2>
+    <span class="note" id="summary" aria-live="polite">loading…</span>
+    <div class="shop-actions">
+      <button type="button" class="ghost" id="copy">Copy as text</button>
+      <button type="button" class="ghost" id="print">Print</button>
+      <button type="button" class="ghost danger" id="clear">Clear list</button>
+    </div>
+  </div>
+  <p class="shop-msg note" id="msg" role="status" hidden></p>
+
+  <div class="panel" id="recipesPanel">
+    <h2>Recipes</h2>
+    <div id="recipes"></div>
+  </div>
+
+  <div class="panel">
+    <h2>To buy</h2>
+    <div id="aisles"></div>
+    <form class="add-extra" id="extraForm">
+      <input type="text" id="extraText" maxlength="200" autocomplete="off"
+             placeholder="Anything else? Paper towels, a bottle of wine…"
+             aria-label="Add something else to buy">
+      <button type="submit" class="ghost">Add</button>
+    </form>
+  </div>
+
+  <div class="panel" id="cupboardPanel" hidden>
+    <details class="cupboard" id="cupboard"></details>
+  </div>
+</div>
+
+<script src="/static/nav.js" defer></script>
+<script src="/static/shopping.js" defer></script>
+</body>
+</html>

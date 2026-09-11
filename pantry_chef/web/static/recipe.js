@@ -158,7 +158,52 @@ function paintScaled(r) {
   const method = document.getElementById("methodNote");
   method.textContent = methodNote(r);
   method.hidden = r.scale === 1;
+  paintShopping(r);
   window.PantryCook?.init(r);
+}
+
+// --- the shopping list ---------------------------------------------------------
+
+const BASKET = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"
+  stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M3 9h18l-1.6 9.2a2 2 0 0 1-2 1.8H6.6a2 2 0 0 1-2-1.8zM8 9l3-5M16 9l-3-5"/></svg>`;
+
+/** "Add to shopping list", "On your list", or "Update the list to 6 servings". */
+function paintShopping(r) {
+  const button = document.getElementById("shopToggle");
+  if (!button) return;
+  const on = r.shopping;
+  const same = on && Math.abs(on.scale - r.scale) < 1e-9;
+  const label = servingsLabel(r);
+  let text;
+  if (!on) text = "Add to shopping list";
+  else if (same) text = "On your shopping list ✓";
+  else text = `Update the list to ${label || `×${fmtFactor(r.scale)}`}`;
+  button.innerHTML = `${BASKET}<span>${esc(text)}</span>`;
+  button.setAttribute("aria-pressed", String(Boolean(same)));
+  button.title = same ? "Take it off the list" : (label ? `For ${label}` : "");
+}
+
+async function toggleShopping() {
+  const r = current;
+  const button = document.getElementById("shopToggle");
+  const same = r.shopping && Math.abs(r.shopping.scale - r.scale) < 1e-9;
+  button.disabled = true;
+  try {
+    const res = await fetch(`/api/shopping/recipes/${recipeId}`, same
+      ? { method: "DELETE" }
+      : { method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scale: r.scale }) });
+    if (!res.ok) throw new Error(res.statusText);
+    const data = await res.json();
+    r.shopping = data.scale == null ? null : { scale: data.scale };
+    paintShopping(r);
+    window.PantryNav?.setShoppingCount(data.recipes);
+  } catch (_) {
+    button.querySelector("span").textContent = "Could not update the list — try again";
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function setScale(next) {
@@ -244,11 +289,12 @@ async function load() {
           <div class="v">${(r.ingredients || []).length}</div></div>
       </div>
 
-      ${hasSteps ? `<div class="cook-cta">
-        <button type="button" class="go" id="cookStart">${ICONS.cook}Start cooking</button>
-        <span class="note">One step at a time, large enough to read from the stove${
-          timerCount ? `, with ${timerCount} timer${timerCount === 1 ? "" : "s"} ready to start` : ""}.</span>
-      </div>` : ""}
+      <div class="cook-cta">
+        ${hasSteps ? `<button type="button" class="go" id="cookStart">${ICONS.cook}Start cooking</button>` : ""}
+        <button type="button" class="ghost shop-toggle" id="shopToggle"></button>
+        ${hasSteps ? `<span class="note">One step at a time, large enough to read from the stove${
+          timerCount ? `, with ${timerCount} timer${timerCount === 1 ? "" : "s"} ready to start` : ""}.</span>` : ""}
+      </div>
 
       <div class="columns">
         <div class="ingredients">
@@ -321,6 +367,7 @@ async function load() {
 
   const start = document.getElementById("cookStart");
   if (start) start.onclick = () => window.PantryCook.open(current, servingsLabel(current));
+  document.getElementById("shopToggle").onclick = toggleShopping;
   if (location.hash === "#cook" && hasSteps && !window.PantryCook.isOpen()) {
     window.PantryCook.open(current, servingsLabel(current));
   }

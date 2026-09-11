@@ -123,9 +123,10 @@ function render(job) {
   $("bar").style.width = (job.percent || 0) + "%";
   document.querySelector(".track").classList.toggle("idle", !running);
 
+  const automatic = job.origin === "automatic";
   $("current").innerHTML = running && job.current
-    ? `Reading <b>${esc(job.current)}</b>`
-    : esc(job.message || "");
+    ? `${automatic ? "New books found — " : ""}Reading <b>${esc(job.current)}</b>`
+    : esc((automatic && job.message ? "Automatically: " : "") + (job.message || ""));
 
   const parts = [];
   if (job.total) parts.push(`<span><b>${job.done}</b> of ${job.total} books</span>`);
@@ -204,6 +205,81 @@ async function load() {
 
   if (data.job && data.job.status === "running") { render(data.job); watch(); }
   else if (data.job) render(data.job);
+  if (data.watch) renderWatch(data.watch);
 }
+
+// --- automatic indexing ----------------------------------------------------
+
+function ago(seconds) {
+  if (!seconds) return "";
+  const gone = Date.now() / 1000 - seconds;
+  if (gone < 60) return "just now";
+  if (gone < 3600) return `${Math.round(gone / 60)} min ago`;
+  return "at " + new Date(seconds * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function renderWatch(w) {
+  const toggle = $("autoToggle");
+  toggle.checked = w.enabled;
+  toggle.disabled = !w.available;
+  $("autoState").textContent = w.enabled ? "On" : "Off";
+  $("autoCheck").disabled = !w.available;
+
+  let text;
+  if (!w.available) {
+    text = "Switched off on the server (PANTRY_CHEF_AUTO_INDEX=off). "
+      + "New books are indexed when you press Index.";
+  } else if (!w.enabled) {
+    text = "Off. New books are indexed only when you press Index, or Check now.";
+  } else {
+    const every = w.minutes === 1 ? "Every minute" : `Every ${w.minutes} minutes`;
+    text = `${every}, your folders are checked for new or changed books, and those are `
+      + "indexed on their own — nothing to press. Books still being copied in are "
+      + "left until they are complete, and nothing is ever removed.";
+    if (w.last_check) {
+      text += ` Last looked ${ago(w.last_check)}: `
+        + (w.last_found
+          ? `${w.last_found} new or changed book${w.last_found === 1 ? "" : "s"}.`
+          : `nothing new in ${w.books.toLocaleString()} book${w.books === 1 ? "" : "s"}.`);
+    } else {
+      text += " The first look is a few seconds after the app starts.";
+    }
+  }
+  if (w.error) text += ` Last problem: ${w.error}`;
+  $("autoInfo").textContent = text;
+}
+
+$("autoToggle").addEventListener("change", async () => {
+  const toggle = $("autoToggle");
+  try {
+    renderWatch(await api("/api/library/watch", json({ enabled: toggle.checked })));
+  } catch (err) {
+    toggle.checked = !toggle.checked;
+    $("autoInfo").textContent = `Not changed: ${err.message}`;
+  }
+});
+
+$("autoCheck").addEventListener("click", async () => {
+  const button = $("autoCheck");
+  button.disabled = true;
+  try {
+    const result = await api("/api/library/watch/check", json({}));
+    renderWatch(result.watch);
+    if (result.started) { render(result.job); watch(); }
+  } catch (err) {
+    $("autoInfo").textContent = `Could not look: ${err.message}`;
+  } finally {
+    button.disabled = false;
+  }
+});
+
+// An automatic run can start while this page is open; notice it, and keep
+// "last looked" current, without polling hard.
+setInterval(async () => {
+  const data = await api("/api/library/watch").catch(() => null);
+  if (!data) return;
+  renderWatch(data.watch);
+  if (data.job.status === "running" && !polling) { render(data.job); watch(); }
+}, 15000);
 
 load();

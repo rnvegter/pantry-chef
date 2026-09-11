@@ -72,6 +72,9 @@
   flex-wrap: wrap; margin: -6px 0 30px; text-align: center;
 }
 .cook-cta .go { display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; font-size: 16px; }
+.cook-cta .note { flex-basis: 100%; }
+.shop-toggle { display: inline-flex; align-items: center; gap: 8px; padding: 11px 18px; }
+.shop-toggle[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
 .scale-note { font-size: 13px; color: var(--accent); margin: -8px 0 12px; }
 .method-note { font-size: 13px; color: var(--muted); text-align: center; margin: -8px 0 16px; }
 .ingredients li .why.unscaled { color: var(--warn); }
@@ -205,6 +208,7 @@ details.was pre {
       </svg>Pantry Chef<span>.</span></h1>
     <nav>
       <a href="/">Search</a>
+      <a href="/shopping">Shopping <span class="nav-count" id="shopCount" hidden></span></a>
       <a href="/library">Library</a>
     </nav>
   </header>
@@ -247,6 +251,7 @@ details.was pre {
 <!-- Timers outlive cook mode: close it and they keep counting down here. -->
 <div id="cookTray" class="cook-tray" aria-label="Timers" hidden></div>
 
+<script src="/static/nav.js" defer></script>
 <script src="/static/cook.js" defer></script>
 <script src="/static/edit.js" defer></script>
 <script src="/static/recipe.js" defer></script>

@@ -333,6 +333,13 @@ function card(r) {
       aria-label="${r.is_favourite ? "Remove from favourites" : "Save to favourites"}: ${esc(r.title)}"
       ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.3s-7.3-4.5-9.3-9.1C1.3 7.9 3.3 4.4 6.8 4.4c2 0 3.5 1.1 4.2 2.6h2c.7-1.5 2.2-2.6 4.2-2.6 3.5 0 5.5 3.5 4.1 6.8-2 4.6-9.3 9.1-9.3 9.1z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg></button>`;
 
+  // On or off the shopping list, at the book's servings; the recipe page is
+  // where to choose a different number.
+  const basket = `<button type="button" class="basket" data-id="${r.id}"
+      aria-pressed="${r.on_list ? "true" : "false"}"
+      aria-label="${r.on_list ? "Take off the shopping list" : "Add to the shopping list"}: ${esc(r.title)}"
+      ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9h18l-1.6 9.2a2 2 0 0 1-2 1.8H6.6a2 2 0 0 1-2-1.8zM8 9l3-5M16 9l-3-5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
+
   const href = `/recipe/${r.id}?units=metric${
     pantry.length ? "&have=" + encodeURIComponent(pantry.join(",")) : ""}`;
 
@@ -350,7 +357,7 @@ function card(r) {
   return `<div class="card" data-card="${r.id}">
     ${thumb}
     <div class="card-body">
-      ${heart}
+      ${basket}${heart}
       <h3>${esc(r.title)} ${badge}</h3>
       <div class="meta">${bits.map(b => `<span>${esc(b)}</span>`).join("")}</div>
       ${byName ? "" : `<div class="bar"><i style="width:${pct}%"></i></div>`}
@@ -467,6 +474,30 @@ async function refreshFavSummary() {
   } catch (_) { /* keep the last known counts */ }
   paintFavSummary();
 }
+
+// The basket on each card: on or off the shopping list.
+$("results").addEventListener("click", async (e) => {
+  const button = e.target.closest(".basket");
+  if (!button) return;
+  const on = button.getAttribute("aria-pressed") === "true";
+  button.disabled = true;
+  try {
+    const res = await fetch(`/api/shopping/recipes/${button.dataset.id}`, on
+      ? { method: "DELETE" }
+      : { method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scale: 1 }) });
+    if (!res.ok) throw new Error(res.statusText);
+    const data = await res.json();
+    button.setAttribute("aria-pressed", String(!on));
+    button.setAttribute("aria-label", button.getAttribute("aria-label").replace(
+      /^[^:]*/, on ? "Add to the shopping list" : "Take off the shopping list"));
+    window.PantryNav?.setShoppingCount(data.recipes);
+  } catch (_) {
+    $("msg").textContent = "Could not update the shopping list — is the server still running?";
+  } finally {
+    button.disabled = false;
+  }
+});
 
 // One listener for every heart on the page, including cards drawn later.
 $("results").addEventListener("click", async (e) => {

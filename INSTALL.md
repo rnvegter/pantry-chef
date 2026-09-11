@@ -640,6 +640,14 @@ that path first:
 export PANTRY_CHEF_BROWSE_ROOTS=/Volumes/Media
 ```
 
+Once a folder is added, new cookbooks dropped into it are indexed on their own
+— the app looks every five minutes while it is running. To look less often, or
+never (the switch on the Library page does the same without a restart):
+
+```bash
+export PANTRY_CHEF_AUTO_INDEX=30      # minutes between looks, or "off"
+```
+
 ---
 
 ## Where your data lives
@@ -680,7 +688,7 @@ Inside a container instead:
 docker compose run --rm pantry-chef sh -c "pip install pytest && pytest -q"
 ```
 
-378 tests should pass in about ten seconds. They generate their own sample
+439 tests should pass in about ten seconds. They generate their own sample
 cookbooks, so you do not need any books of your own to run them.
 
 The `dev` extra also installs the linter and the type checker, both of which
