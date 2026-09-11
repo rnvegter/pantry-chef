@@ -80,6 +80,46 @@
   text-decoration: underline; cursor: pointer;
 }
 
+/* Corrections: the note on a corrected recipe, and the edit form. */
+.edited-note, .edit-notice {
+  max-width: 62ch; margin: -14px auto 22px; padding: 8px 14px; border-radius: 10px;
+  font-size: 13px; text-align: center; background: var(--accent-soft); color: var(--ink);
+}
+.edit-notice { background: var(--ok-soft); }
+
+.editor .editor-intro { color: var(--muted); text-align: center; max-width: 60ch; margin: 12px auto 28px; }
+.editor .editor-intro b { color: var(--ink); font-weight: 600; }
+.ed-field { margin-bottom: 22px; }
+.ed-field label .hint { text-transform: none; letter-spacing: 0; font-size: 12px; margin-left: 6px; }
+.ed-field input[type=number] {
+  width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px;
+  background: var(--bg); color: inherit; font: inherit;
+}
+.ed-field textarea {
+  width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px;
+  background: var(--bg); color: inherit; font: inherit; line-height: 1.55; resize: vertical;
+}
+.ed-field input:focus, .ed-field textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+.ed-field #edTitle { font-size: 18px; font-weight: 600; }
+.ed-row { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+@media (max-width: 560px) { .ed-row { grid-template-columns: 1fr; gap: 0; } }
+.was { font-size: 13px; color: var(--muted); margin: 6px 0 0; }
+.was b { color: var(--ink); font-weight: 500; }
+details.was summary { cursor: pointer; color: var(--accent); }
+details.was pre {
+  white-space: pre-wrap; font: inherit; font-size: 13px; background: var(--accent-soft);
+  padding: 10px 12px; border-radius: 9px; margin: 8px 0;
+}
+.ed-error {
+  background: var(--bad-soft); color: var(--bad); padding: 10px 14px; border-radius: 9px;
+  font-size: 14px;
+}
+.ed-actions {
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  padding-top: 20px; border-top: 1px solid var(--line);
+}
+.ed-actions .ed-revert { margin-left: auto; color: var(--bad); }
+
 .columns { display: grid; grid-template-columns: 300px 1fr; gap: 34px; align-items: start; }
 .ingredients {
   background: var(--accent-soft); border-radius: 14px; padding: 22px 24px 26px;
@@ -143,7 +183,8 @@
 @media print {
   body { background: #fff; }
   .card-page { border: 0; margin: 0; padding: 0; max-width: none; }
-  .tools, nav, .wrap > header, .cook-cta, .stepper .step, .linkish { display: none !important; }
+  .tools, nav, .wrap > header, .cook-cta, .stepper .step, .linkish,
+  .edited-note, .edit-notice { display: none !important; }
 }
 </style>
 </head>
@@ -169,6 +210,7 @@
   </header>
 
   <div id="page"><div class="empty">Loading the recipe…</div></div>
+  <div id="editor" hidden></div>
 </div>
 
 <!-- Cook mode sits outside .wrap so the page behind it can be made inert. -->
@@ -206,6 +248,7 @@
 <div id="cookTray" class="cook-tray" aria-label="Timers" hidden></div>
 
 <script src="/static/cook.js" defer></script>
+<script src="/static/edit.js" defer></script>
 <script src="/static/recipe.js" defer></script>
 </body>
 </html>

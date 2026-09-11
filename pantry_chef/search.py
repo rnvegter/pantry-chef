@@ -12,7 +12,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass, field, replace
 
-from .db import FAVOURITE_IDS_SQL, favourite_ids, has_table
+from .db import favourite_ids, has_table, keyed_ids_sql
 from .parse.ingredients import canonicalize
 from .parse.lexicon import STAPLES
 
@@ -246,7 +246,8 @@ def _build_filters(conn: sqlite3.Connection, query: Query,
         where.append("r.total_minutes IS NOT NULL AND r.total_minutes <= ?")
         params.append(query.max_minutes)
     if query.require_timed:
-        where.append("r.time_source IN ('label','labels-summed')")
+        # A time corrected by hand is as known as one the book printed.
+        where.append("r.time_source IN ('label','labels-summed','edited')")
     if not query.allow_long_wait:
         where.append("r.has_long_wait = 0")
     if query.min_confidence > 0:
@@ -296,7 +297,7 @@ def _build_filters(conn: sqlite3.Connection, query: Query,
     if query.favourites_only:
         # No table yet means no favourites yet, not an error.
         if has_table(conn, "favourites"):
-            where.append(f"r.id IN ({FAVOURITE_IDS_SQL})")
+            where.append(f"r.id IN ({keyed_ids_sql(conn, 'favourites')})")
         else:
             where.append("0")
 

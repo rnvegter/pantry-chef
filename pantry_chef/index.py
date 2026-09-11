@@ -17,7 +17,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import db
+from . import db, edits
 from .extract import format_of, is_supported, read_book
 from .models import Book, Recipe
 from .parse.segment import find_recipes
@@ -166,6 +166,8 @@ def _store(conn, result: BookResult) -> int:
         book_id = db.upsert_book(conn, book)
         db.delete_book_recipes(conn, book_id)
         stored = db.insert_recipes(conn, book_id, result.recipes or [])
+        # A re-read replaces every recipe; corrections made by hand go back on.
+        edits.reapply_book(conn, book_id)
     return stored
 
 

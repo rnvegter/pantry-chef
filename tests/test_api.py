@@ -161,7 +161,7 @@ def test_book_text_is_never_interpolated_unescaped():
     static = Path(__file__).resolve().parents[1] / "pantry_chef" / "web" / "static"
     # Fields carrying text that originated in a book.
     risky = re.compile(
-        r"\$\{[^}]*\b\w+\.(display|canonical|name|value|title|book|section)\b[^}]*\}")
+        r"\$\{[^}]*\b\w+\.(display|canonical|name|value|title|book|section|line|label)\b[^}]*\}")
 
     offenders = []
     for script in sorted(static.glob("*.js")):

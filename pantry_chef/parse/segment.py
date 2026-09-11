@@ -11,6 +11,7 @@ between the two, and the method is whatever follows until the next recipe.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 
 from ..extract.blocks import IMAGE, LIST_ITEM, Block
 from ..models import Recipe, RecipeIngredient
@@ -296,28 +297,9 @@ def find_recipes(blocks: list[Block], min_confidence: float = MIN_CONFIDENCE,
         )
         instructions = _collect_instructions(blocks, run_end + 1, stop)
 
-        ingredients: list[RecipeIngredient] = []
-        seen: set[str] = set()
-        for i in range(run_start, run_end + 1):
-            block = blocks[i]
-            if not _is_ingredient(block):
-                continue
-            for parsed in parse_ingredient_line(block.text):
-                if parsed.canonical in seen:
-                    continue
-                seen.add(parsed.canonical)
-                ingredients.append(
-                    RecipeIngredient(
-                        canonical=parsed.canonical,
-                        display=parsed.display,
-                        raw=parsed.raw,
-                        quantity=parsed.quantity,
-                        unit=parsed.unit,
-                        note=parsed.note,
-                        is_staple=parsed.is_staple,
-                        position=len(ingredients),
-                    )
-                )
+        ingredients = ingredients_from_lines(
+            blocks[i].text for i in range(run_start, run_end + 1)
+            if _is_ingredient(blocks[i]))
 
         if len(ingredients) < MIN_RUN:
             continue
@@ -345,21 +327,7 @@ def find_recipes(blocks: list[Block], min_confidence: float = MIN_CONFIDENCE,
             page=blocks[run_start].doc,
             order_in_book=len(recipes),
         )
-        judged = classify(
-            title=recipe.title,
-            section=recipe.section,
-            ingredients=[i.canonical for i in ingredients],
-            instructions=instructions,
-            book_title=book_title,
-        )
-        recipe.meals = judged.meals
-        recipe.cuisine = judged.cuisine or ""
-
-        diet = diet_profile([i.canonical for i in ingredients])
-        recipe.diets = sorted(diet.diets)
-        recipe.allergens = sorted(diet.allergens)
-        recipe.n_unknown = diet.n_unknown
-        recipe.diet_caveats = " · ".join(diet.caveats)
+        enrich(recipe, book_title)
 
         recipe.confidence = _confidence(recipe, had_heading, len(ingredients))
         if recipe.confidence < min_confidence:
@@ -368,3 +336,54 @@ def find_recipes(blocks: list[Block], min_confidence: float = MIN_CONFIDENCE,
         previous_end = run_end + 1
 
     return recipes
+
+
+# The two steps below are shared with hand edits (pantry_chef/edits.py), so a
+# corrected recipe is read exactly the way the book's own text was.
+
+def ingredients_from_lines(lines: Iterable[str]) -> list[RecipeIngredient]:
+    """Parse ingredient lines into the recipe's ingredient list.
+
+    One line can name several ingredients ("salt and pepper"); an ingredient
+    named twice is kept once, at its first mention.
+    """
+    ingredients: list[RecipeIngredient] = []
+    seen: set[str] = set()
+    for line in lines:
+        for parsed in parse_ingredient_line(line):
+            if parsed.canonical in seen:
+                continue
+            seen.add(parsed.canonical)
+            ingredients.append(
+                RecipeIngredient(
+                    canonical=parsed.canonical,
+                    display=parsed.display,
+                    raw=parsed.raw,
+                    quantity=parsed.quantity,
+                    unit=parsed.unit,
+                    note=parsed.note,
+                    is_staple=parsed.is_staple,
+                    position=len(ingredients),
+                )
+            )
+    return ingredients
+
+
+def enrich(recipe: Recipe, book_title: str = "") -> None:
+    """Derive meal, cuisine, diets and allergens from what the recipe says."""
+    canonicals = [i.canonical for i in recipe.ingredients]
+    judged = classify(
+        title=recipe.title,
+        section=recipe.section,
+        ingredients=canonicals,
+        instructions=recipe.instructions,
+        book_title=book_title,
+    )
+    recipe.meals = judged.meals
+    recipe.cuisine = judged.cuisine or ""
+
+    diet = diet_profile(canonicals)
+    recipe.diets = sorted(diet.diets)
+    recipe.allergens = sorted(diet.allergens)
+    recipe.n_unknown = diet.n_unknown
+    recipe.diet_caveats = " · ".join(diet.caveats)

@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from .. import db
+from .. import db, edits
 from ..config import db_path
 from ..images import load_image, version_tag
 from ..jobs import (
@@ -192,7 +192,7 @@ def _result_json(result, *, full: bool = False, metric: bool = False,
         "total_minutes": result.total_minutes,
         "active_minutes": result.active_minutes,
         "time_source": result.time_source,
-        "time_is_estimate": result.time_source not in ("label", "labels-summed"),
+        "time_is_estimate": result.time_source not in ("label", "labels-summed", "edited"),
         "has_long_wait": result.has_long_wait,
         "confidence": round(result.confidence, 2),
         "meals": result.meals,
@@ -305,10 +305,64 @@ def api_recipe(recipe_id: int, have: str = Q(default="", max_length=2000),
         recipe = get_recipe(conn, recipe_id, have=pantry)
         if not recipe:
             raise HTTPException(status_code=404, detail="no such recipe")
-        return JSONResponse(
-            _result_json(recipe, full=True, metric=(units != "original"), scale=scale))
+        data = _result_json(recipe, full=True, metric=(units != "original"), scale=scale)
+        data["edit"] = edits.state(conn, recipe_id)
+        return JSONResponse(data)
     finally:
         conn.close()
+
+
+# --- correcting a recipe by hand ------------------------------------------------
+
+class RecipeEdit(BaseModel):
+    """The fields a correction may change. Omitted fields are left alone."""
+
+    title: str | None = Field(default=None, max_length=edits.MAX_TITLE)
+    servings: str | None = Field(default=None, max_length=edits.MAX_SERVINGS)
+    total_minutes: int | None = Field(default=None, ge=1, le=edits.MAX_MINUTES)
+    ingredients: list[str] | None = Field(default=None, max_length=edits.MAX_LINES)
+    instructions: str | None = Field(default=None, max_length=edits.MAX_METHOD)
+
+
+@app.get("/api/recipe/{recipe_id}/edit")
+def api_recipe_editor(recipe_id: int) -> JSONResponse:
+    """The recipe's editable fields now, the book's version, and what differs."""
+    conn = get_conn()
+    try:
+        form = edits.editor(conn, recipe_id)
+    finally:
+        conn.close()
+    if form is None:
+        raise HTTPException(status_code=404, detail="no such recipe")
+    return JSONResponse(form)
+
+
+@app.put("/api/recipe/{recipe_id}/edit")
+def api_save_recipe_edit(recipe_id: int, request: RecipeEdit) -> JSONResponse:
+    """Correct a recipe. Search, filters and allergens follow at once."""
+    conn = get_writable_conn()
+    try:
+        saved = edits.save(conn, recipe_id, request.model_dump(exclude_unset=True))
+    except edits.EditError as err:
+        raise HTTPException(status_code=422, detail=str(err)) from None
+    finally:
+        conn.close()
+    if saved is None:
+        raise HTTPException(status_code=404, detail="no such recipe")
+    return JSONResponse({"id": recipe_id, "changed": saved.changed, "folded": saved.folded})
+
+
+@app.delete("/api/recipe/{recipe_id}/edit")
+def api_revert_recipe_edit(recipe_id: int) -> JSONResponse:
+    """Put the book's version back."""
+    conn = get_writable_conn()
+    try:
+        found = edits.revert(conn, recipe_id)
+    finally:
+        conn.close()
+    if not found:
+        raise HTTPException(status_code=404, detail="no such recipe")
+    return JSONResponse({"id": recipe_id, "changed": []})
 
 
 @app.get("/api/complete")

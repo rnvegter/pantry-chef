@@ -222,6 +222,12 @@ async function load() {
       <div class="byline">
         from <b>${esc(r.book)}</b>${r.page ? `, page ${r.page}` : ""}
       </div>
+      <p class="edit-notice" id="editNotice" role="status" hidden></p>
+      ${r.edit && r.edit.edited ? `<p class="edited-note">Corrected by you: ${
+        esc(r.edit.fields.map(f => EDIT_NAMES[f] || f).join(", "))}.
+        <button type="button" class="linkish" data-edit-open>Edit</button> ·
+        <button type="button" class="linkish" id="undoEdits">Go back to the book’s version</button></p>`
+        : ""}
 
       <div class="tags">${tags.join("")}</div>
 
@@ -266,13 +272,15 @@ async function load() {
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.3s-7.3-4.5-9.3-9.1C1.3 7.9 3.3 4.4 6.8 4.4c2 0 3.5 1.1 4.2 2.6h2c.7-1.5 2.2-2.6 4.2-2.6 3.5 0 5.5 3.5 4.1 6.8-2 4.6-9.3 9.1-9.3 9.1z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
           <span>${r.is_favourite ? "Saved" : "Save to favourites"}</span>
         </button>
+        <button class="ghost" type="button" data-edit-open>Edit recipe</button>
         <button class="ghost" id="units">Show ${units === "metric" ? "original units" : "metric"}</button>
         <button class="ghost" id="print">Print</button>
       </div>
 
       <div class="source">
         <b>${esc(r.book)}</b>${r.page ? ` · page ${r.page}` : ""}
-        ${r.time_is_estimate ? " · time is estimated, not stated in the book" : ""}
+        ${r.time_is_estimate ? ` · time is estimated, not stated in the book —
+          <button type="button" class="linkish" data-edit-open>correct it</button>` : ""}
       </div>
     </div>`;
 
@@ -316,13 +324,71 @@ async function load() {
   if (location.hash === "#cook" && hasSteps && !window.PantryCook.isOpen()) {
     window.PantryCook.open(current, servingsLabel(current));
   }
+
+  const undo = document.getElementById("undoEdits");
+  if (undo) undo.onclick = undoEdits;
+  if (location.hash === "#edit" && !window.PantryEdit.isOpen()) openEditor();
 }
 
-// One listener for the stepper and the reset link, which are redrawn on every
-// change and so cannot keep handlers of their own.
+// --- corrections ----------------------------------------------------------------
+
+const EDIT_NAMES = {
+  title: "title", servings: "servings", total_minutes: "time",
+  ingredients: "ingredients", instructions: "method",
+};
+
+async function openEditor() {
+  try {
+    await window.PantryEdit.open(recipeId, async (result) => {
+      if (!result) return;                 // cancelled: the card is as it was
+      await load();
+      noteSaved(result);
+    });
+  } catch (err) {
+    noteSaved({ error: err.message });
+  }
+}
+
+function noteSaved(result) {
+  const el = document.getElementById("editNotice");
+  if (!el) return;
+  let text;
+  if (result.error) text = `Could not open the editor: ${result.error}`;
+  else if (result.reverted || !result.changed.length) text = "This is the book’s version again.";
+  else text = "Saved. Search, the filters and the allergen check now use your version.";
+  if (result.folded && result.folded.length) {
+    text += ` Not listed separately: ${result.folded.map(l => `“${l}”`).join(", ")} — `
+      + "each repeats an ingredient already listed, or names no ingredient. "
+      + "Your lines are kept in the editor.";
+  }
+  el.textContent = text;
+  el.hidden = false;
+  el.scrollIntoView({ block: "nearest" });
+}
+
+async function undoEdits() {
+  if (!window.confirm("Undo all your corrections and go back to the book’s version?")) return;
+  const res = await fetch(`/api/recipe/${recipeId}/edit`, { method: "DELETE" });
+  await load();
+  noteSaved(res.ok ? { reverted: true } : { error: res.statusText });
+}
+
+// Forward into #edit or #cook, or a link that changes only the hash, opens the
+// editor or cook mode just as loading the page at that address does.
+window.addEventListener("popstate", () => {
+  if (!current) return;
+  if (location.hash === "#edit" && !window.PantryEdit.isOpen()) openEditor();
+  if (location.hash === "#cook" && !window.PantryCook.isOpen() && (current.steps || []).length) {
+    window.PantryCook.open(current, servingsLabel(current));
+  }
+});
+
+// One listener for the stepper, the reset link and the edit links, which are
+// redrawn with the page and so cannot keep handlers of their own.
 document.getElementById("page").addEventListener("click", (e) => {
   const button = e.target.closest("[data-scale]");
   if (button && !button.disabled) setScale(Number(button.dataset.scale));
+  if (e.target.closest("[data-edit-open]")) openEditor();
 });
 
 load();

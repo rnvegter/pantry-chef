@@ -17,7 +17,7 @@ from pathlib import Path
 
 from .models import Book, Recipe
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -48,6 +48,21 @@ CREATE TABLE IF NOT EXISTS favourites (
     occurrence INTEGER NOT NULL DEFAULT 1,
     title      TEXT NOT NULL,              -- as it was shown, for reporting
     added_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (book_path, title_key, occurrence)
+);
+
+-- Corrections made by hand, keyed the same way as favourites and for the same
+-- reason: they have to survive a re-read of the book. Only the fields that
+-- were changed are stored, so a better parser still improves the rest.
+-- `original` keeps the book's own version of the editable fields, so any
+-- correction can be undone without re-reading the book.
+CREATE TABLE IF NOT EXISTS recipe_edits (
+    book_path  TEXT NOT NULL,
+    title_key  TEXT NOT NULL,              -- lower(trim(the book's title))
+    occurrence INTEGER NOT NULL DEFAULT 1,
+    fields     TEXT NOT NULL,              -- JSON: the corrected fields only
+    original   TEXT NOT NULL,              -- JSON: the book's version
+    edited_at  TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (book_path, title_key, occurrence)
 );
 
@@ -91,7 +106,11 @@ CREATE TABLE IF NOT EXISTS recipes (
     -- Where the recipe's photograph lives inside the source book. Images are
     -- referenced rather than copied: a library this size would otherwise carry
     -- gigabytes of duplicated artwork.
-    image_ref      TEXT NOT NULL DEFAULT ''
+    image_ref      TEXT NOT NULL DEFAULT '',
+    -- The title as the book gives it. `title` is what is shown and can be
+    -- corrected by hand; this one never changes, so favourites and edits can
+    -- still find the recipe after its title has been fixed.
+    source_title   TEXT NOT NULL DEFAULT ''
 );
 -- The time filter runs before the ingredient join, so it needs its own index.
 CREATE INDEX IF NOT EXISTS idx_recipes_time ON recipes(total_minutes);
@@ -177,6 +196,7 @@ _ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("n_unknown", "INTEGER NOT NULL DEFAULT 0"),
         ("diet_caveats", "TEXT NOT NULL DEFAULT ''"),
         ("image_ref", "TEXT NOT NULL DEFAULT ''"),
+        ("source_title", "TEXT NOT NULL DEFAULT ''"),
     ],
 }
 
@@ -224,6 +244,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
         for name, definition in columns:
             if name not in existing:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+
+    # Before hand edits existed the shown title was always the book's title.
+    conn.execute("UPDATE recipes SET source_title = title WHERE source_title = ''")
 
     _rebuild_fts_if_needed(conn)
     conn.execute(
@@ -444,42 +467,65 @@ def _complete_book_column(conn: sqlite3.Connection, column: str,
 
 # --- favourites -----------------------------------------------------------
 
-# Resolves every stored favourite to the id its recipe has *now*. Only recipes
-# whose book and title match a favourite are ranked, so the window function
-# runs over a handful of rows rather than the whole library.
-FAVOURITE_IDS_SQL = """
-    SELECT ranked.id FROM (
-        SELECT r.id AS id, b.path AS path, LOWER(TRIM(r.title)) AS title_key,
-               ROW_NUMBER() OVER (
-                   PARTITION BY r.book_id, LOWER(TRIM(r.title))
-                   ORDER BY r.order_in_book, r.id
-               ) AS occurrence
-        FROM recipes r JOIN books b ON b.id = r.book_id
-        WHERE EXISTS (SELECT 1 FROM favourites f
-                      WHERE f.book_path = b.path
-                        AND f.title_key = LOWER(TRIM(r.title)))
-    ) ranked
-    JOIN favourites f ON f.book_path = ranked.path
-                     AND f.title_key = ranked.title_key
-                     AND f.occurrence = ranked.occurrence
-"""
+# A recipe's stable identity is "the Nth recipe with this title in this book",
+# using the book's own title so a corrected title does not change it. A
+# database opened read-only before `source_title` was added falls back to the
+# shown title, which until then was always the same thing.
+
+def has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    return any(row[1] == column for row in conn.execute(f"PRAGMA table_info({table})"))
 
 
-def _favourite_key(conn: sqlite3.Connection,
-                   recipe_id: int) -> tuple[str, str, int, str] | None:
-    """The stable (book path, title key, occurrence, title) for a recipe."""
+def title_key_sql(conn: sqlite3.Connection, alias: str = "r") -> str:
+    if has_column(conn, "recipes", "source_title"):
+        return (f"LOWER(TRIM(CASE WHEN {alias}.source_title <> '' "
+                f"THEN {alias}.source_title ELSE {alias}.title END))")
+    return f"LOWER(TRIM({alias}.title))"
+
+
+def keyed_ids_sql(conn: sqlite3.Connection, table: str) -> str:
+    """SQL resolving every row of a keyed table to its recipe's id *now*.
+
+    `table` is favourites or recipe_edits. Only recipes whose book and title
+    match a stored key are ranked, so the window function runs over a handful
+    of rows rather than the whole library.
+    """
+    if table not in ("favourites", "recipe_edits"):
+        raise ValueError(f"{table!r} is not a keyed table")
+    key = title_key_sql(conn)
+    return f"""
+        SELECT ranked.id FROM (
+            SELECT r.id AS id, b.path AS path, {key} AS title_key,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY r.book_id, {key}
+                       ORDER BY r.order_in_book, r.id
+                   ) AS occurrence
+            FROM recipes r JOIN books b ON b.id = r.book_id
+            WHERE EXISTS (SELECT 1 FROM {table} k
+                          WHERE k.book_path = b.path AND k.title_key = {key})
+        ) ranked
+        JOIN {table} k ON k.book_path = ranked.path
+                      AND k.title_key = ranked.title_key
+                      AND k.occurrence = ranked.occurrence
+    """
+
+
+def recipe_key(conn: sqlite3.Connection,
+               recipe_id: int) -> tuple[str, str, int, str] | None:
+    """The stable (book path, title key, occurrence, shown title) for a recipe."""
+    key = title_key_sql(conn)
     row = conn.execute(
-        """SELECT b.path AS path, r.title AS title, r.book_id AS book_id,
-                  r.order_in_book AS ord, LOWER(TRIM(r.title)) AS title_key
-           FROM recipes r JOIN books b ON b.id = r.book_id WHERE r.id = ?""",
+        f"""SELECT b.path AS path, r.title AS title, r.book_id AS book_id,
+                   r.order_in_book AS ord, {key} AS title_key
+            FROM recipes r JOIN books b ON b.id = r.book_id WHERE r.id = ?""",
         (recipe_id,),
     ).fetchone()
     if row is None:
         return None
     occurrence = conn.execute(
-        """SELECT COUNT(*) FROM recipes
-           WHERE book_id = ? AND LOWER(TRIM(title)) = ?
-             AND (order_in_book < ? OR (order_in_book = ? AND id <= ?))""",
+        f"""SELECT COUNT(*) FROM recipes r
+            WHERE r.book_id = ? AND {key} = ?
+              AND (r.order_in_book < ? OR (r.order_in_book = ? AND r.id <= ?))""",
         (row["book_id"], row["title_key"], row["ord"], row["ord"], recipe_id),
     ).fetchone()[0]
     return row["path"], row["title_key"], int(occurrence), row["title"]
@@ -487,7 +533,7 @@ def _favourite_key(conn: sqlite3.Connection,
 
 def add_favourite(conn: sqlite3.Connection, recipe_id: int) -> bool:
     """Save a recipe to favourites. False if no such recipe exists."""
-    key = _favourite_key(conn, recipe_id)
+    key = recipe_key(conn, recipe_id)
     if key is None:
         return False
     path, title_key, occurrence, title = key
@@ -503,7 +549,7 @@ def add_favourite(conn: sqlite3.Connection, recipe_id: int) -> bool:
 
 def remove_favourite(conn: sqlite3.Connection, recipe_id: int) -> bool:
     """Remove a recipe from favourites. False if it was not one."""
-    key = _favourite_key(conn, recipe_id)
+    key = recipe_key(conn, recipe_id)
     if key is None:
         return False
     path, title_key, occurrence, _title = key
@@ -539,7 +585,7 @@ def favourite_ids(conn: sqlite3.Connection) -> set[int]:
     """Current recipe ids of every favourite that still resolves."""
     if not has_table(conn, "favourites"):
         return set()
-    return {int(row[0]) for row in conn.execute(FAVOURITE_IDS_SQL)}
+    return {int(row[0]) for row in conn.execute(keyed_ids_sql(conn, "favourites"))}
 
 
 def favourite_summary(conn: sqlite3.Connection) -> dict[str, int]:
@@ -644,61 +690,76 @@ def insert_recipes(
             INSERT INTO recipes (book_id, title, section, servings, instructions,
                 total_minutes, active_minutes, time_source, has_long_wait, page,
                 order_in_book, confidence, n_ingredients, n_core,
-                n_unknown, diet_caveats, image_ref)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                n_unknown, diet_caveats, image_ref, source_title)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (book_id, recipe.title, recipe.section, recipe.servings,
              recipe.instructions, recipe.total_minutes, recipe.active_minutes,
              recipe.time_source, int(recipe.has_long_wait), recipe.page,
              recipe.order_in_book, recipe.confidence,
              len(recipe.ingredients), len(core),
-             recipe.n_unknown, recipe.diet_caveats, recipe.image_ref),
+             recipe.n_unknown, recipe.diet_caveats, recipe.image_ref, recipe.title),
         )
         if cursor.lastrowid is None:                    # pragma: no cover
             raise RuntimeError("the recipe insert returned no row id")
-        recipe_id = int(cursor.lastrowid)
-        recipe.id = recipe_id
-
-        rows = []
-        seen: set[int] = set()
-        for ingredient in recipe.ingredients:
-            ingredient_id = ingredient_ids.get(ingredient.canonical)
-            if ingredient_id is None or ingredient_id in seen:
-                continue
-            seen.add(ingredient_id)
-            rows.append((
-                recipe_id, ingredient_id, ingredient.display, ingredient.raw,
-                ingredient.quantity, ingredient.unit, ingredient.note,
-                int(ingredient.is_staple), ingredient.position,
-            ))
-        conn.executemany(
-            """INSERT OR IGNORE INTO recipe_ingredients
-               (recipe_id, ingredient_id, display, raw, quantity, unit, note,
-                is_staple, position)
-               VALUES (?,?,?,?,?,?,?,?,?)""",
-            rows,
-        )
-
-        tags = [(recipe_id, "meal", meal) for meal in recipe.meals]
-        if recipe.cuisine:
-            tags.append((recipe_id, "cuisine", recipe.cuisine))
-        tags += [(recipe_id, "diet", diet) for diet in recipe.diets]
-        tags += [(recipe_id, "allergen", a) for a in recipe.allergens]
-        conn.executemany(
-            "INSERT OR IGNORE INTO recipe_tags (recipe_id, kind, value)"
-            " VALUES (?, ?, ?)",
-            tags,
-        )
-
-        conn.execute(
-            "INSERT INTO recipes_fts (rowid, title, ingredients_text, instructions)"
-            " VALUES (?, ?, ?, ?)",
-            (recipe_id, recipe.title,
-             " ".join(i.display for i in recipe.ingredients),
-             recipe.instructions),
-        )
+        recipe.id = int(cursor.lastrowid)
+        write_recipe_children(conn, recipe.id, recipe, ingredient_ids)
 
     return len(recipes)
+
+
+def write_recipe_children(conn: sqlite3.Connection, recipe_id: int, recipe: Recipe,
+                          ingredient_ids: dict[str, int] | None = None) -> None:
+    """Write what hangs off a recipe row: ingredients, tags, search text.
+
+    Any existing children are replaced, which is what lets a hand edit rewrite
+    a recipe in place and keep its id.
+    """
+    if ingredient_ids is None:
+        ingredient_ids = intern_ingredients(
+            conn, {i.canonical: i.is_staple for i in recipe.ingredients})
+
+    conn.execute("DELETE FROM recipe_ingredients WHERE recipe_id = ?", (recipe_id,))
+    conn.execute("DELETE FROM recipe_tags WHERE recipe_id = ?", (recipe_id,))
+    conn.execute("DELETE FROM recipes_fts WHERE rowid = ?", (recipe_id,))
+
+    rows = []
+    seen: set[int] = set()
+    for ingredient in recipe.ingredients:
+        ingredient_id = ingredient_ids.get(ingredient.canonical)
+        if ingredient_id is None or ingredient_id in seen:
+            continue
+        seen.add(ingredient_id)
+        rows.append((
+            recipe_id, ingredient_id, ingredient.display, ingredient.raw,
+            ingredient.quantity, ingredient.unit, ingredient.note,
+            int(ingredient.is_staple), ingredient.position,
+        ))
+    conn.executemany(
+        """INSERT OR IGNORE INTO recipe_ingredients
+           (recipe_id, ingredient_id, display, raw, quantity, unit, note,
+            is_staple, position)
+           VALUES (?,?,?,?,?,?,?,?,?)""",
+        rows,
+    )
+
+    tags = [(recipe_id, "meal", meal) for meal in recipe.meals]
+    if recipe.cuisine:
+        tags.append((recipe_id, "cuisine", recipe.cuisine))
+    tags += [(recipe_id, "diet", diet) for diet in recipe.diets]
+    tags += [(recipe_id, "allergen", a) for a in recipe.allergens]
+    conn.executemany(
+        "INSERT OR IGNORE INTO recipe_tags (recipe_id, kind, value) VALUES (?, ?, ?)",
+        tags,
+    )
+
+    conn.execute(
+        "INSERT INTO recipes_fts (rowid, title, ingredients_text, instructions)"
+        " VALUES (?, ?, ?, ?)",
+        (recipe_id, recipe.title,
+         " ".join(i.display for i in recipe.ingredients),
+         recipe.instructions),
+    )
 
 
 def refresh_ingredient_counts(conn: sqlite3.Connection) -> None:

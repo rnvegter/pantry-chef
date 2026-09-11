@@ -106,6 +106,35 @@ id, so a favourite is remembered as *the Nth recipe called X in book Y* rather
 than by id. If a book moves and a favourite can no longer be found, it is kept
 rather than deleted, and the tab says so — it comes back when the book does.
 
+## Correcting a recipe
+
+Reading recipes out of ebooks is heuristic, and sometimes it is wrong: a roast
+timed at three minutes, a method step filed as an ingredient, a title that is
+really the chapter heading. **Edit recipe** on any recipe page — or *correct
+it*, next to a time the book did not state — opens the recipe's title,
+servings, total time, ingredients (one per line) and method (one step per
+paragraph) for editing.
+
+A correction is not just cosmetic. It is applied the way the book's own text
+is: the ingredient lines are parsed and the recipe is re-classified, so search,
+the time filter, the meal and diet filters, the allergen check, the pantry
+match, serving scaling and cook mode all use your version at once. The recipe
+keeps its address, and a corrected time counts as known rather than estimated.
+
+- **The book's version is kept.** Every corrected field shows what the book
+  said, with *Use the book's* beside it, and *Go back to the book's version*
+  undoes everything — exactly, not approximately.
+- **Only what you changed is stored.** Saving the form untouched changes
+  nothing; setting a field back to the book's value stops it being a
+  correction. So when a future version of the parser reads a book better, the
+  fields you did not touch improve with it.
+- **Corrections survive a re-read.** A `--force` re-index re-creates every
+  recipe; corrections are stored apart, keyed like favourites, and laid back
+  over the re-read recipe. Correcting a title does not lose its favourite.
+- **Two lines for one ingredient** — "1 tsp salt" and "salt, to finish" — still
+  make one ingredient, as they do in the book. The page says when a line of
+  yours was folded in this way, and the editor keeps it as you typed it.
+
 ## The recipe card
 
 Every result links to its own page at `/recipe/<id>`, opened in a new tab so
@@ -486,11 +515,11 @@ Worth knowing before you trust a result:
 .venv/bin/python -m pytest -q
 ```
 
-351 tests covering quantity parsing, ingredient canonicalisation, time
+378 tests covering quantity parsing, ingredient canonicalisation, time
 extraction, meal and cuisine classification, allergen and diet derivation,
 metric conversion, serving scaling, cook-mode timers, title casing and step
-splitting, photo extraction, downscaling and thumbnails, favourites, block
-parsing, segmentation
+splitting, photo extraction, downscaling and thumbnails, favourites, hand
+corrections, block parsing, segmentation
 across all three book shapes, ingest, resumability, schema migration, failure
 isolation and diagnosis, background indexing jobs, search ranking, every filter,
 and the HTTP API end to end. `ruff` and `mypy` are configured and clean; both
