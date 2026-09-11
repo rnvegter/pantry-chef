@@ -139,6 +139,15 @@ Not every image in a book is a photograph, so covers, logos, ornaments and
 rules are filtered out by name and by size. A book with no recipe photos simply
 shows none, and the layout is built to look finished without one.
 
+The search results show the same photo as a small square beside each recipe,
+from a separate thumbnail — 240 pixels on the short side, about 20 KB — so a
+page of fifty results costs well under a megabyte rather than the full photos'
+tens. Thumbnails load as you scroll, are cached on their own, and are made
+without caching the full-size photo along the way, so browsing results does not
+fill the disk with photos nobody opened. A recipe without a photo, or one whose
+book has moved, gets a plain placeholder so the titles in the list still line
+up.
+
 On the six cookbooks this was developed against, 502 of 586 recipes came out
 with a photo; the one book contributing none turned out to have no recipe
 photography at all.
@@ -428,10 +437,10 @@ Worth knowing before you trust a result:
 .venv/bin/python -m pytest -q
 ```
 
-211 tests covering quantity parsing, ingredient canonicalisation, time
+281 tests covering quantity parsing, ingredient canonicalisation, time
 extraction, meal and cuisine classification, allergen and diet derivation,
-metric conversion, title casing and step splitting, photo extraction and
-downscaling, block parsing, segmentation
+metric conversion, title casing and step splitting, photo extraction,
+downscaling and thumbnails, favourites, block parsing, segmentation
 across all three book shapes, ingest, resumability, schema migration, failure
 isolation and diagnosis, background indexing jobs, search ranking, every filter,
 and the HTTP API end to end. `ruff` and `mypy` are configured and clean; both

@@ -333,7 +333,7 @@ def test_recipe_photo_is_served(client):
     listing = client.post("/api/search", json={"title": "linguine"}).json()
     recipe = listing["results"][0]
     assert recipe["has_image"]
-    assert recipe["image_url"] == f"/api/recipe/{recipe['id']}/image"
+    assert recipe["image_url"].startswith(f"/api/recipe/{recipe['id']}/image?v=")
 
     response = client.get(recipe["image_url"])
     assert response.status_code == 200
@@ -342,13 +342,44 @@ def test_recipe_photo_is_served(client):
     assert "max-age" in response.headers.get("cache-control", "")
 
 
+def test_search_results_carry_a_thumbnail(client):
+    """The results list shows a small photo, and it must actually be small."""
+    import pymupdf
+
+    listing = client.post("/api/search", json={"title": "linguine"}).json()
+    recipe = listing["results"][0]
+    assert recipe["thumb_url"].startswith(f"/api/recipe/{recipe['id']}/image?v=")
+    assert recipe["thumb_url"].endswith("&size=thumb")
+
+    thumb = client.get(recipe["thumb_url"])
+    full = client.get(recipe["image_url"])
+    assert thumb.status_code == 200
+    assert thumb.headers["content-type"] == "image/jpeg"
+    assert "max-age" in thumb.headers.get("cache-control", "")
+    assert len(thumb.content) < len(full.content)
+    pixmap = pymupdf.Pixmap(thumb.content)
+    assert min(pixmap.width, pixmap.height) <= 240
+
+
+def test_an_unknown_photo_size_is_refused(client):
+    listing = client.post("/api/search", json={"title": "linguine"}).json()
+    recipe_id = listing["results"][0]["id"]
+    assert client.get(f"/api/recipe/{recipe_id}/image?size=huge").status_code == 422
+
+
 def test_a_recipe_without_a_photo_says_so(client):
-    # The loosely-structured fixture book carries no images.
-    listing = client.post("/api/search", json={"limit": 100}).json()
-    without = [r for r in listing["results"] if not r["has_image"]]
+    # The loosely-structured fixture book and the PDF carry no images. Search
+    # collapses the three editions of each dish and keeps the photographed
+    # copy, so those recipes never reach a results list; ask for them by id.
+    found = [client.get(f"/api/recipe/{i}") for i in range(1, 40)]
+    without = [r.json() for r in found if r.status_code == 200 and not r.json()["has_image"]]
+    assert without, "the fixtures should include recipes without a photo"
     for recipe in without:
         assert recipe["image_url"] is None
+        assert recipe["thumb_url"] is None
         assert client.get(f"/api/recipe/{recipe['id']}/image").status_code == 404
+        assert client.get(
+            f"/api/recipe/{recipe['id']}/image?size=thumb").status_code == 404
 
 
 def test_photo_for_an_unknown_recipe_is_404(client):

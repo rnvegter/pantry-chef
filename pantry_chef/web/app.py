@@ -10,7 +10,7 @@ import contextlib
 import sqlite3
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException
 from fastapi import Query as Q
@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 
 from .. import db
 from ..config import db_path
-from ..images import load_image
+from ..images import load_image, version_tag
 from ..jobs import (
     browse_roots,
     diagnose,
@@ -185,7 +185,8 @@ def _result_json(result, *, full: bool = False, metric: bool = False) -> dict:
         "n_unknown": result.n_unknown,
         "is_favourite": result.is_favourite,
         "has_image": bool(result.image_ref),
-        "image_url": f"/api/recipe/{result.recipe_id}/image" if result.image_ref else None,
+        "image_url": _image_url(result),
+        "thumb_url": _image_url(result, thumb=True),
         "n_core": result.n_core,
         "n_matched": result.n_matched,
         "coverage": round(result.coverage, 3),
@@ -202,6 +203,15 @@ def _result_json(result, *, full: bool = False, metric: bool = False) -> dict:
             len(result.ingredients), len(steps),
             result.total_minutes, result.instructions)
     return data
+
+
+def _image_url(result: Any, *, thumb: bool = False) -> str | None:
+    """Where the recipe's photo is served, or None when the book has none."""
+    if not result.image_ref:
+        return None
+    tag = version_tag(result.book_path, result.image_ref)
+    size = "&size=thumb" if thumb else ""
+    return f"/api/recipe/{result.recipe_id}/image?v={tag}{size}"
 
 
 @app.post("/api/search")
@@ -343,8 +353,14 @@ def api_remove_favourite(recipe_id: int) -> JSONResponse:
 
 
 @app.get("/api/recipe/{recipe_id}/image")
-def api_recipe_image(recipe_id: int) -> Response:
-    """The recipe's photograph, read out of the book it came from."""
+def api_recipe_image(recipe_id: int,
+                     size: Literal["full", "thumb"] = Q(default="full")) -> Response:
+    """The recipe's photograph, read out of the book it came from.
+
+    `size=thumb` is the small square-cropping version the results list shows.
+    The `v` parameter the URLs carry is ignored here; it exists only so the
+    browser's cache is keyed on the photo rather than on the recipe id.
+    """
     conn = get_conn()
     try:
         row = conn.execute(
@@ -359,7 +375,7 @@ def api_recipe_image(recipe_id: int) -> Response:
         raise HTTPException(status_code=404, detail="no photo for this recipe")
 
     loaded = load_image(row["path"], row["image_ref"],
-                        cache_root=Path(db_path()).parent)
+                        cache_root=Path(db_path()).parent, thumb=(size == "thumb"))
     if loaded is None:
         raise HTTPException(
             status_code=404,

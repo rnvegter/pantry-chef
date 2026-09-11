@@ -333,20 +333,40 @@ function card(r) {
       aria-label="${r.is_favourite ? "Remove from favourites" : "Save to favourites"}: ${esc(r.title)}"
       ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.3s-7.3-4.5-9.3-9.1C1.3 7.9 3.3 4.4 6.8 4.4c2 0 3.5 1.1 4.2 2.6h2c.7-1.5 2.2-2.6 4.2-2.6 3.5 0 5.5 3.5 4.1 6.8-2 4.6-9.3 9.1-9.3 9.1z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg></button>`;
 
+  const href = `/recipe/${r.id}?units=metric${
+    pantry.length ? "&have=" + encodeURIComponent(pantry.join(",")) : ""}`;
+
+  // The photo is a second way into the recipe, not a second thing to read:
+  // the "Open the recipe" link already says where it goes, so this one is kept
+  // out of the tab order and away from screen readers rather than announced
+  // twice. Recipes without a photo get a quiet placeholder so the titles in
+  // the list still line up.
+  const thumb = r.thumb_url
+    ? `<a class="thumb" href="${href}" target="_blank" rel="noopener"
+          tabindex="-1" aria-hidden="true"><img src="${esc(r.thumb_url)}" alt=""
+          width="112" height="112" loading="lazy" decoding="async"></a>`
+    : THUMB_PLACEHOLDER;
+
   return `<div class="card" data-card="${r.id}">
-    ${heart}
-    <h3>${esc(r.title)} ${badge}</h3>
-    <div class="meta">${bits.map(b => `<span>${esc(b)}</span>`).join("")}</div>
-    ${byName ? "" : `<div class="bar"><i style="width:${pct}%"></i></div>`}
-    ${need}
-    ${allergens}
-    ${caveat ? `<div class="caveat">${esc(caveat)}</div>` : ""}
-    ${byName ? "" : `<div class="have-list">${r.n_matched} of ${r.n_core} main ingredients on hand</div>`}
-    <a class="open" target="_blank" rel="noopener"
-       href="/recipe/${r.id}?units=metric${pantry.length ? "&have=" + encodeURIComponent(pantry.join(",")) : ""}">
-      Open the recipe →</a>
+    ${thumb}
+    <div class="card-body">
+      ${heart}
+      <h3>${esc(r.title)} ${badge}</h3>
+      <div class="meta">${bits.map(b => `<span>${esc(b)}</span>`).join("")}</div>
+      ${byName ? "" : `<div class="bar"><i style="width:${pct}%"></i></div>`}
+      ${need}
+      ${allergens}
+      ${caveat ? `<div class="caveat">${esc(caveat)}</div>` : ""}
+      ${byName ? "" : `<div class="have-list">${r.n_matched} of ${r.n_core} main ingredients on hand</div>`}
+      <a class="open" target="_blank" rel="noopener" href="${href}">Open the recipe →</a>
+    </div>
   </div>`;
 }
+
+// A plate with a cloche: "a dish, but no photo of it".
+const THUMB_PLACEHOLDER = `<div class="thumb none" aria-hidden="true"><svg viewBox="0 0 24 24"
+  ><path d="M4 16a8 8 0 0 1 16 0z M12 6.2v1.8 M2.5 18.5h19" fill="none"
+  stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>`;
 
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g,
@@ -471,6 +491,14 @@ $("results").addEventListener("click", async (e) => {
     button.disabled = false;
   }
 });
+
+// A photo that will not load — the book has moved, say — becomes the same
+// placeholder a recipe without a photo gets, not a broken-image icon. Image
+// errors do not bubble, so this listens in the capture phase.
+$("results").addEventListener("error", (e) => {
+  const link = e.target.closest?.(".thumb");
+  if (e.target.tagName === "IMG" && link) link.outerHTML = THUMB_PLACEHOLDER;
+}, true);
 
 function setMode(next) {
   mode = next;

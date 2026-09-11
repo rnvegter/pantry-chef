@@ -28,7 +28,15 @@ from pantry_chef.extract.blocks import (
     blocks_from_html,
     clean_metadata,
 )
-from pantry_chef.images import downscale, load_image
+from pantry_chef.images import (
+    THUMB_SIDE,
+    cache_path,
+    downscale,
+    load_image,
+    sniff_type,
+    thumbnail,
+    version_tag,
+)
 from pantry_chef.index import ingest
 from pantry_chef.jobs import (
     IndexJobManager,
@@ -1063,6 +1071,91 @@ def test_small_photos_are_served_untouched():
 
     small = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 800, 600))
     assert downscale(small.tobytes("jpeg")) is None
+
+
+def _photo(width, height, fmt="jpeg"):
+    import pymupdf
+
+    pixmap = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, width, height))
+    for i in range(0, width, 7):
+        pixmap.set_rect(pymupdf.IRect(i, 0, i + 4, height), (i % 255, 120, (i * 5) % 255))
+    return pixmap.tobytes(fmt)
+
+
+@pytest.mark.parametrize("width,height", [(3000, 2000), (1200, 1800), (500, 500)])
+def test_thumbnails_size_the_short_side(width, height):
+    """The results list crops each photo to a square, so the short side is the
+    one that has to fill it — landscape or portrait alike."""
+    import pymupdf
+
+    made = thumbnail(_photo(width, height))
+    assert made is not None
+    data, content_type = made
+    assert content_type == "image/jpeg"
+    pixmap = pymupdf.Pixmap(data)
+    assert min(pixmap.width, pixmap.height) == THUMB_SIDE
+    # The shape is kept; cropping is the page's job, not the server's.
+    assert abs(pixmap.width / pixmap.height - width / height) < 0.02
+
+
+def test_a_small_photo_is_not_enlarged_for_its_thumbnail():
+    import pymupdf
+
+    made = thumbnail(_photo(180, 120, "png"))
+    assert made is not None
+    assert made[1] == "image/jpeg"
+    assert (pymupdf.Pixmap(made[0]).width, pymupdf.Pixmap(made[0]).height) == (180, 120)
+
+
+def test_an_undecodable_thumbnail_is_logged_and_falls_back(caplog):
+    with caplog.at_level("WARNING", logger="pantry_chef.images"):
+        assert thumbnail(b"not an image") is None
+    assert "could not make a thumbnail" in caplog.text
+
+
+def test_a_thumbnail_does_not_fill_the_cache_with_full_photos(fixtures_exist, tmp_path):
+    """A page of results asks for fifty thumbnails. Caching the full photo for
+    each of those as a side effect would fill the disk with photos nobody
+    opened, so only the thumbnail is kept."""
+    book = FIXTURES / "small-kitchen-well.epub"
+    ref = find_recipes(read_book(book)[0])[0].image_ref
+
+    first = load_image(str(book), ref, cache_root=tmp_path, thumb=True)
+    assert first is not None and first[1] == "image/jpeg"
+    cached = list((tmp_path / "image-cache").iterdir())
+    assert cached == [cache_path(tmp_path, str(book), ref, thumb=True)]
+
+    again = load_image(str(book), ref, cache_root=tmp_path, thumb=True)
+    assert again == first
+
+
+def test_the_thumbnail_and_the_full_photo_are_cached_apart(fixtures_exist, tmp_path):
+    book = str(FIXTURES / "small-kitchen-well.epub")
+    ref = find_recipes(read_book(Path(book))[0])[0].image_ref
+
+    full = load_image(book, ref, cache_root=tmp_path)
+    small = load_image(book, ref, cache_root=tmp_path, thumb=True)
+    assert full and small and full[0] != small[0]
+    # And asking for the full photo again still gets the full photo.
+    assert load_image(book, ref, cache_root=tmp_path) == full
+
+
+def test_cached_photos_are_served_as_what_they_are():
+    """A PNG that was downscaled is cached as JPEG under the PNG's name, and a
+    PDF photo has no name at all; the bytes decide the content type."""
+    assert sniff_type(_photo(20, 20, "jpeg"), "image/png") == "image/jpeg"
+    assert sniff_type(_photo(20, 20, "png"), "image/jpeg") == "image/png"
+    assert sniff_type(b"GIF89a....", "image/jpeg") == "image/gif"
+    assert sniff_type(b"<svg/>", "image/svg+xml") == "image/svg+xml"
+
+
+def test_the_photo_version_changes_with_the_photo():
+    """A re-index reissues recipe ids; the tag keeps the browser's week-long
+    cache from showing a reused id's previous photo."""
+    tag = version_tag("/books/a.epub", "images/1.jpg")
+    assert tag == version_tag("/books/a.epub", "images/1.jpg")
+    assert tag != version_tag("/books/a.epub", "images/2.jpg")
+    assert tag != version_tag("/books/b.epub", "images/1.jpg")
 
 
 def test_photo_reference_survives_the_database(indexed_db):

@@ -44,6 +44,30 @@
 .fav:active { transform: scale(.92); }
 @media (prefers-reduced-motion: reduce) { .fav { transition: none; } }
 
+/* The dish's photo, cropped square beside the text. The tinted ground shows
+   while the photo loads and doubles as the placeholder when there is none. */
+.card { display: flex; gap: 16px; align-items: flex-start; }
+.card-body { flex: 1; min-width: 0; }
+.thumb {
+  flex: none; display: block; width: 112px; height: 112px;
+  border-radius: 10px; overflow: hidden; background: var(--accent-soft);
+}
+.thumb img {
+  display: block; width: 100%; height: 100%; object-fit: cover;
+  transition: transform .25s ease;
+}
+a.thumb:hover img { transform: scale(1.05); }
+.thumb.none {
+  display: flex; align-items: center; justify-content: center; color: var(--accent);
+}
+.thumb.none svg { width: 44px; height: 44px; opacity: .4; }
+@media (max-width: 560px) {
+  .card { gap: 12px; }
+  .thumb { width: 76px; height: 76px; }
+  .thumb.none svg { width: 32px; height: 32px; }
+}
+@media (prefers-reduced-motion: reduce) { .thumb img { transition: none; } }
+
 .tabs button[aria-selected="true"] {
   color: var(--accent); border-bottom-color: var(--accent);
 }

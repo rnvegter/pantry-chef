@@ -607,7 +607,7 @@ export PANTRY_CHEF_BROWSE_ROOTS=/Volumes/Media
 | Path | What it is | In git? |
 |---|---|---|
 | `data/pantry-chef.db` | the index: recipes, ingredients, tags | no |
-| `data/image-cache/` | downscaled recipe photos, rebuilt on demand | no |
+| `data/image-cache/` | downscaled recipe photos and their thumbnails, rebuilt on demand | no |
 
 Both are safe to delete; re-indexing rebuilds them. Nothing else is written
 outside the project folder, and **your ebooks are never copied or modified** —
@@ -640,7 +640,7 @@ Inside a container instead:
 docker compose run --rm pantry-chef sh -c "pip install pytest && pytest -q"
 ```
 
-270 tests should pass in about ten seconds. They generate their own sample
+281 tests should pass in about ten seconds. They generate their own sample
 cookbooks, so you do not need any books of your own to run them.
 
 The `dev` extra also installs the linter and the type checker, both of which
