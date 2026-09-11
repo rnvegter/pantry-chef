@@ -12,6 +12,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass, field, replace
 
+from .db import FAVOURITE_IDS_SQL, favourite_ids, has_table
 from .parse.ingredients import canonicalize
 from .parse.lexicon import STAPLES
 
@@ -62,6 +63,7 @@ class SearchResult:
     n_core: int
     n_matched: int
     score: float
+    is_favourite: bool = False
     instructions: str = ""
     ingredients: list[MatchedIngredient] = field(default_factory=list)
 
@@ -91,6 +93,7 @@ class Query:
     diets: list[str] = field(default_factory=list)      # vegetarian/vegan/...
     free_from: list[str] = field(default_factory=list)  # allergens to exclude
     strict_diet: bool = False   # drop recipes containing unrecognised ingredients
+    favourites_only: bool = False
     min_confidence: float = 0.0
     require_timed: bool = False       # only recipes whose time is stated
     allow_long_wait: bool = True
@@ -153,6 +156,15 @@ def _expand_ids(
 
 def _placeholders(n: int) -> str:
     return ",".join("?" * n)
+
+
+def _mark_favourites(conn: sqlite3.Connection, results: list[SearchResult]) -> None:
+    """Set is_favourite on each result from one lookup."""
+    if not results:
+        return
+    saved = favourite_ids(conn)
+    for result in results:
+        result.is_favourite = result.recipe_id in saved
 
 
 def search(conn: sqlite3.Connection, query: Query) -> tuple[list[SearchResult], dict]:
@@ -281,6 +293,13 @@ def _build_filters(conn: sqlite3.Connection, query: Query,
     if query.strict_diet and (free_from or query.diets):
         where.append("r.n_unknown = 0")
 
+    if query.favourites_only:
+        # No table yet means no favourites yet, not an error.
+        if has_table(conn, "favourites"):
+            where.append(f"r.id IN ({FAVOURITE_IDS_SQL})")
+        else:
+            where.append("0")
+
     if query.text.strip():
         where.append(
             "r.id IN (SELECT rowid FROM recipes_fts WHERE recipes_fts MATCH ?)"
@@ -405,24 +424,37 @@ def _search_once(conn: sqlite3.Connection, query: Query) -> tuple[list[SearchRes
     rows = conn.execute(sql, params).fetchall()
     results = [_build_result(conn, row, set(pantry_ids)) for row in rows]
 
+    # Known before de-duplicating, because it decides which copy of a dish is
+    # kept: the one you saved, so its heart shows as saved and un-saving it
+    # acts on the favourite you actually have.
+    saved = favourite_ids(conn)
     if query.dedupe:
-        results, duplicates = _dedupe(results)
+        results, duplicates = _dedupe(results, saved)
         info["duplicates_collapsed"] = duplicates
     results = results[:query.limit]
+    for result in results:
+        result.is_favourite = result.recipe_id in saved
 
     info["returned"] = len(results)
     return results, info
 
 
-def _dedupe(results: list[SearchResult]) -> tuple[list[SearchResult], int]:
+def _dedupe(results: list[SearchResult],
+            favourites: set[int] | frozenset[int] = frozenset(),
+            ) -> tuple[list[SearchResult], int]:
     """Collapse the same dish appearing in several books or editions.
 
     Libraries of this size routinely hold a book twice -- an EPUB and a MOBI of
     the same title, or two editions. Keying on the title plus the core
     ingredient set catches those without merging genuinely different recipes
     that happen to share a name.
+
+    The first copy met keeps its place in the ranking, but if a later copy is
+    one you have saved, that copy takes the place instead. Otherwise the dish
+    you saved would appear unsaved, and saving it again would quietly create a
+    second favourite for the same thing.
     """
-    seen: dict[tuple[str, frozenset[str]], SearchResult] = {}
+    slot: dict[tuple[str, frozenset[str]], int] = {}
     ordered: list[SearchResult] = []
     collapsed = 0
 
@@ -431,10 +463,13 @@ def _dedupe(results: list[SearchResult]) -> tuple[list[SearchResult], int]:
             "".join(c for c in result.title.lower() if c.isalnum()),
             frozenset(i.canonical for i in result.ingredients if not i.is_staple),
         )
-        if key in seen:
+        if key in slot:
             collapsed += 1
+            kept = ordered[slot[key]]
+            if result.recipe_id in favourites and kept.recipe_id not in favourites:
+                ordered[slot[key]] = result
             continue
-        seen[key] = result
+        slot[key] = len(ordered)
         ordered.append(result)
 
     return ordered, collapsed
@@ -562,4 +597,8 @@ def get_recipe(conn: sqlite3.Connection, recipe_id: int,
            FROM recipes r JOIN books b ON b.id = r.book_id WHERE r.id = ?""",
         (recipe_id,),
     ).fetchone()
-    return _build_result(conn, row, set(pantry_ids)) if row else None
+    if not row:
+        return None
+    result = _build_result(conn, row, set(pantry_ids))
+    _mark_favourites(conn, [result])
+    return result

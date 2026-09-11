@@ -92,6 +92,20 @@ The database defaults to `data/pantry-chef.db`; override with `--db` or `$PANTRY
 
 ---
 
+## Favourites
+
+Tap the heart on any recipe — in the results or on its own page — to keep it.
+The **Favourites** tab lists everything you have saved, and the filters still
+apply there, so it answers "a saved vegetarian dinner under half an hour" as
+readily as "everything I saved".
+
+Favourites are stored in the index, not the browser, so on a server they follow
+you between devices. They also survive a full re-read of your library, which
+takes more care than it sounds: a `--force` re-index gives every recipe a new
+id, so a favourite is remembered as *the Nth recipe called X in book Y* rather
+than by id. If a book moves and a favourite can no longer be found, it is kept
+rather than deleted, and the tab says so — it comes back when the book does.
+
 ## The recipe card
 
 Every result links to its own page at `/recipe/<id>`, opened in a new tab so

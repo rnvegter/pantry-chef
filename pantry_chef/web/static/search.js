@@ -2,6 +2,8 @@ const $ = (id) => document.getElementById(id);
 // "ingredient" = what can I cook with what I have; "name" = find that recipe.
 let mode = "ingredient";
 let pantry = [];
+// Counts for the Favourites tab badge and the "could not be found" note.
+let favSummary = { total: 0, available: 0, missing: 0 };
 let meals = new Set();
 let diets = new Set();
 let avoid = new Set();
@@ -223,10 +225,15 @@ async function run() {
   // they are not sent: a forgotten pantry must never quietly narrow a search
   // by name, nor an old author narrow a search by ingredient.
   const byName = mode === "name";
+  // The Favourites tab lists what you saved, narrowed only by the shared
+  // filters — like the name tab, it says nothing about what is in the fridge.
+  const favourites = mode === "favourites";
+  const noPantry = byName || favourites;
   const body = {
-    have: byName ? [] : pantry,
+    have: noPantry ? [] : pantry,
+    favourites_only: favourites,
     max_minutes: minutes(),
-    max_missing: byName ? 99 : +$("missing").value,
+    max_missing: noPantry ? 99 : +$("missing").value,
     text: byName ? $("text").value : "",
     title: byName ? $("title").value : "",
     author: byName ? $("author").value : "",
@@ -267,6 +274,14 @@ async function run() {
   $("msg").textContent = notes.join(" · ");
   applyFacets(data.facets);
 
+  if (!data.results.length && mode === "favourites") {
+    $("results").innerHTML = favSummary.available
+      ? `<div class="empty">None of your favourites match these filters.<br>
+           Clear a filter to see them all.</div>`
+      : `<div class="empty">No favourites yet.<br>
+           Tap the heart on any recipe to keep it here.</div>`;
+    return;
+  }
   if (!data.results.length) {
     $("results").innerHTML = `<div class="empty">No recipes matched.<br>${
       mode === "name"
@@ -279,10 +294,11 @@ async function run() {
 }
 
 function card(r) {
-  // Searching by name says nothing about what is in your kitchen, so the
-  // coverage furniture — "needs 6", the bar, "0 of 6 on hand" — is noise
-  // there. The ingredient list is still worth showing, just not as a verdict.
-  const byName = mode === "name";
+  // Searching by name, or listing favourites, says nothing about what is in
+  // your kitchen — so the coverage furniture ("needs 6", the bar, "0 of 6 on
+  // hand") is noise on those tabs. The ingredient list is still worth showing,
+  // just not as a verdict.
+  const byName = mode === "name" || mode === "favourites";
   const pct = Math.round(r.coverage * 100);
   const badge = byName ? ""
     : r.missing.length === 0
@@ -312,7 +328,13 @@ function card(r) {
     r.n_unknown ? `${r.n_unknown} ingredient${r.n_unknown > 1 ? "s" : ""} not recognised — allergen check is incomplete` : "",
   ].filter(Boolean).join(" · ");
 
-  return `<div class="card">
+  const heart = `<button type="button" class="fav" data-id="${r.id}"
+      aria-pressed="${r.is_favourite ? "true" : "false"}"
+      aria-label="${r.is_favourite ? "Remove from favourites" : "Save to favourites"}: ${esc(r.title)}"
+      ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.3s-7.3-4.5-9.3-9.1C1.3 7.9 3.3 4.4 6.8 4.4c2 0 3.5 1.1 4.2 2.6h2c.7-1.5 2.2-2.6 4.2-2.6 3.5 0 5.5 3.5 4.1 6.8-2 4.6-9.3 9.1-9.3 9.1z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg></button>`;
+
+  return `<div class="card" data-card="${r.id}">
+    ${heart}
     <h3>${esc(r.title)} ${badge}</h3>
     <div class="meta">${bits.map(b => `<span>${esc(b)}</span>`).join("")}</div>
     ${byName ? "" : `<div class="bar"><i style="width:${pct}%"></i></div>`}
@@ -403,12 +425,60 @@ function applyFacets(facets) {
   });
 }
 
+// --- favourites ------------------------------------------------------------
+
+function paintFavSummary() {
+  const n = favSummary.available;
+  $("favCount").hidden = !n;
+  $("favCount").textContent = n.toLocaleString();
+  // A favourite that no longer resolves is kept, not deleted, so say so.
+  const lost = favSummary.missing;
+  $("favMissing").hidden = !lost;
+  $("favMissing").textContent = lost
+    ? `${lost} saved recipe${lost > 1 ? "s" : ""} could not be found — the book may `
+      + "have moved, or been re-read under a different title. It comes back if the book does."
+    : "";
+}
+
+async function refreshFavSummary() {
+  try {
+    const res = await fetch("/api/favourites");
+    if (res.ok) favSummary = await res.json();
+  } catch (_) { /* keep the last known counts */ }
+  paintFavSummary();
+}
+
+// One listener for every heart on the page, including cards drawn later.
+$("results").addEventListener("click", async (e) => {
+  const button = e.target.closest(".fav");
+  if (!button) return;
+  const saved = button.getAttribute("aria-pressed") === "true";
+  button.disabled = true;
+  try {
+    const res = await fetch(`/api/favourites/${button.dataset.id}`,
+                            { method: saved ? "DELETE" : "PUT" });
+    if (!res.ok) throw new Error(res.statusText);
+    const data = await res.json();
+    button.setAttribute("aria-pressed", String(data.is_favourite));
+    // Swap only the verb; the recipe's name after the colon stays as it was.
+    button.setAttribute("aria-label", button.getAttribute("aria-label").replace(
+      /^[^:]*/, data.is_favourite ? "Remove from favourites" : "Save to favourites"));
+    favSummary = { total: data.total, available: data.available, missing: data.missing };
+    paintFavSummary();
+  } catch (_) {
+    $("msg").textContent = "Could not update favourites — is the server still running?";
+  } finally {
+    button.disabled = false;
+  }
+});
+
 function setMode(next) {
   mode = next;
   document.querySelectorAll(".tabs button").forEach(b =>
     b.setAttribute("aria-selected", String(b.dataset.mode === next)));
   $("panelIngredient").hidden = next !== "ingredient";
   $("panelName").hidden = next !== "name";
+  $("panelFavourites").hidden = next !== "favourites";
 
   // Searching by name with nothing typed would list the whole library, which
   // is not what an empty box means. Wait for input instead.
@@ -438,3 +508,4 @@ function updateAvoidNote() {
 
 renderChips();
 updateAvoidNote();
+refreshFavSummary();

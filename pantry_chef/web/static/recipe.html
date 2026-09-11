@@ -90,6 +90,10 @@
   border-top: 1px solid var(--line);
 }
 .tools .note { margin-right: auto; }
+.fav-toggle { display: inline-flex; align-items: center; gap: 7px; }
+.fav-toggle svg { width: 17px; height: 17px; }
+.fav-toggle[aria-pressed="true"] { color: var(--bad); border-color: var(--bad); }
+.fav-toggle[aria-pressed="true"] svg path { fill: currentColor; }
 .source {
   margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--line);
   font-size: 13px; color: var(--muted); text-align: center;

@@ -126,6 +126,11 @@ async function load() {
 
       <div class="tools">
         <span class="note">Amounts shown in ${units === "metric" ? "metric" : "the book's original units"}.</span>
+        <button class="ghost fav-toggle" id="favToggle" type="button"
+                aria-pressed="${r.is_favourite ? "true" : "false"}">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.3s-7.3-4.5-9.3-9.1C1.3 7.9 3.3 4.4 6.8 4.4c2 0 3.5 1.1 4.2 2.6h2c.7-1.5 2.2-2.6 4.2-2.6 3.5 0 5.5 3.5 4.1 6.8-2 4.6-9.3 9.1-9.3 9.1z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+          <span>${r.is_favourite ? "Saved" : "Save to favourites"}</span>
+        </button>
         <button class="ghost" id="units">Show ${units === "metric" ? "original units" : "metric"}</button>
         <button class="ghost" id="print">Print</button>
       </div>
@@ -140,6 +145,25 @@ async function load() {
   // an inline onerror, which the Content-Security-Policy forbids.
   const hero = document.getElementById("heroImage");
   if (hero) hero.addEventListener("error", () => hero.remove());
+
+  const favButton = document.getElementById("favToggle");
+  favButton.onclick = async () => {
+    const saved = favButton.getAttribute("aria-pressed") === "true";
+    favButton.disabled = true;
+    try {
+      const res = await fetch(`/api/favourites/${recipeId}`,
+                              { method: saved ? "DELETE" : "PUT" });
+      if (!res.ok) throw new Error(res.statusText);
+      const data = await res.json();
+      favButton.setAttribute("aria-pressed", String(data.is_favourite));
+      favButton.querySelector("span").textContent =
+        data.is_favourite ? "Saved" : "Save to favourites";
+    } catch (_) {
+      favButton.querySelector("span").textContent = "Could not save — try again";
+    } finally {
+      favButton.disabled = false;
+    }
+  };
 
   document.getElementById("units").onclick = () => {
     units = units === "metric" ? "original" : "metric";

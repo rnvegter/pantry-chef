@@ -18,6 +18,32 @@
   font-size: 14px; color: var(--muted); cursor: pointer;
 }
 .tabs button:hover { color: var(--ink); }
+.tab-count {
+  display: inline-block; min-width: 18px; padding: 0 6px; margin-left: 5px;
+  border-radius: 999px; background: var(--accent-soft); color: var(--accent);
+  font-size: 12px; font-weight: 600; line-height: 18px; text-align: center;
+}
+.fav-intro { margin: 0; max-width: 62ch; }
+.fav-missing { margin: 8px 0 0; color: var(--warn); }
+
+/* The heart. Outline when unsaved, filled when saved; the button's
+   aria-pressed carries the state so it reads the same to a screen reader. */
+.card { position: relative; }
+.card h3 { padding-right: 40px; }
+.fav {
+  position: absolute; top: 14px; right: 14px; width: 34px; height: 34px;
+  display: flex; align-items: center; justify-content: center; padding: 0;
+  border: 1px solid var(--line); border-radius: 999px; background: var(--surface);
+  color: var(--muted); cursor: pointer; transition: transform .12s ease;
+}
+.fav svg { width: 18px; height: 18px; }
+.fav:hover { color: var(--bad); border-color: var(--bad); }
+.fav:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fav[aria-pressed="true"] { color: var(--bad); border-color: var(--bad); }
+.fav[aria-pressed="true"] svg path { fill: currentColor; }
+.fav:active { transform: scale(.92); }
+@media (prefers-reduced-motion: reduce) { .fav { transition: none; } }
+
 .tabs button[aria-selected="true"] {
   color: var(--accent); border-bottom-color: var(--accent);
 }
@@ -180,6 +206,9 @@ a.open:hover { text-decoration: underline; }
               aria-selected="true" aria-controls="panelIngredient">By ingredient</button>
       <button type="button" role="tab" id="tabName" data-mode="name"
               aria-selected="false" aria-controls="panelName">By name</button>
+      <button type="button" role="tab" id="tabFavourites" data-mode="favourites"
+              aria-selected="false" aria-controls="panelFavourites">Favourites
+        <span class="tab-count" id="favCount" hidden></span></button>
     </div>
 
     <!-- Only the active tab's fields are sent, so a pantry left behind on the
@@ -250,7 +279,14 @@ a.open:hover { text-decoration: underline; }
       </div>
     </div>
 
-    <!-- Filters below the tabs, because they narrow either kind of search. -->
+    <div id="panelFavourites" role="tabpanel" aria-labelledby="tabFavourites" hidden>
+      <p class="note fav-intro">Every recipe you have saved with the heart. The
+        filters below still apply — so this is also where to find a saved
+        vegetarian dinner that takes under half an hour.</p>
+      <p class="note fav-missing" id="favMissing" hidden></p>
+    </div>
+
+    <!-- Filters below the tabs, because they narrow every kind of search. -->
     <div class="filters">
       <div>
         <label>Meal</label>

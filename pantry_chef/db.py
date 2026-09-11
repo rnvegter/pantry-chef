@@ -35,6 +35,22 @@ CREATE TABLE IF NOT EXISTS sources (
     enabled      INTEGER NOT NULL DEFAULT 1
 );
 
+-- Favourites deliberately do not reference recipes.id. A --force re-index
+-- deletes a book's recipes and inserts them again with new ids, so a foreign
+-- key would either cascade the favourites away or leave them pointing at
+-- nothing. A favourite is instead "the Nth recipe called X in book Y", which
+-- survives a re-read as long as the book stays where it is.
+CREATE TABLE IF NOT EXISTS favourites (
+    book_path  TEXT NOT NULL,
+    title_key  TEXT NOT NULL,              -- lower(trim(title))
+    -- Which same-titled recipe in the book: one cookbook here has seven
+    -- recipes called "Dough", and favouriting one should not favourite all.
+    occurrence INTEGER NOT NULL DEFAULT 1,
+    title      TEXT NOT NULL,              -- as it was shown, for reporting
+    added_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (book_path, title_key, occurrence)
+);
+
 CREATE TABLE IF NOT EXISTS books (
     id          INTEGER PRIMARY KEY,
     path        TEXT NOT NULL UNIQUE,
@@ -424,6 +440,121 @@ def _complete_book_column(conn: sqlite3.Connection, column: str,
         (*params, limit),
     ).fetchall()
     return [(row["value"], int(row["n"])) for row in rows]
+
+
+# --- favourites -----------------------------------------------------------
+
+# Resolves every stored favourite to the id its recipe has *now*. Only recipes
+# whose book and title match a favourite are ranked, so the window function
+# runs over a handful of rows rather than the whole library.
+FAVOURITE_IDS_SQL = """
+    SELECT ranked.id FROM (
+        SELECT r.id AS id, b.path AS path, LOWER(TRIM(r.title)) AS title_key,
+               ROW_NUMBER() OVER (
+                   PARTITION BY r.book_id, LOWER(TRIM(r.title))
+                   ORDER BY r.order_in_book, r.id
+               ) AS occurrence
+        FROM recipes r JOIN books b ON b.id = r.book_id
+        WHERE EXISTS (SELECT 1 FROM favourites f
+                      WHERE f.book_path = b.path
+                        AND f.title_key = LOWER(TRIM(r.title)))
+    ) ranked
+    JOIN favourites f ON f.book_path = ranked.path
+                     AND f.title_key = ranked.title_key
+                     AND f.occurrence = ranked.occurrence
+"""
+
+
+def _favourite_key(conn: sqlite3.Connection,
+                   recipe_id: int) -> tuple[str, str, int, str] | None:
+    """The stable (book path, title key, occurrence, title) for a recipe."""
+    row = conn.execute(
+        """SELECT b.path AS path, r.title AS title, r.book_id AS book_id,
+                  r.order_in_book AS ord, LOWER(TRIM(r.title)) AS title_key
+           FROM recipes r JOIN books b ON b.id = r.book_id WHERE r.id = ?""",
+        (recipe_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    occurrence = conn.execute(
+        """SELECT COUNT(*) FROM recipes
+           WHERE book_id = ? AND LOWER(TRIM(title)) = ?
+             AND (order_in_book < ? OR (order_in_book = ? AND id <= ?))""",
+        (row["book_id"], row["title_key"], row["ord"], row["ord"], recipe_id),
+    ).fetchone()[0]
+    return row["path"], row["title_key"], int(occurrence), row["title"]
+
+
+def add_favourite(conn: sqlite3.Connection, recipe_id: int) -> bool:
+    """Save a recipe to favourites. False if no such recipe exists."""
+    key = _favourite_key(conn, recipe_id)
+    if key is None:
+        return False
+    path, title_key, occurrence, title = key
+    conn.execute(
+        """INSERT INTO favourites (book_path, title_key, occurrence, title)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(book_path, title_key, occurrence) DO NOTHING""",
+        (path, title_key, occurrence, title),
+    )
+    conn.commit()
+    return True
+
+
+def remove_favourite(conn: sqlite3.Connection, recipe_id: int) -> bool:
+    """Remove a recipe from favourites. False if it was not one."""
+    key = _favourite_key(conn, recipe_id)
+    if key is None:
+        return False
+    path, title_key, occurrence, _title = key
+    cursor = conn.execute(
+        """DELETE FROM favourites
+           WHERE book_path = ? AND title_key = ? AND occurrence = ?""",
+        (path, title_key, occurrence),
+    )
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def has_table(conn: sqlite3.Connection, name: str) -> bool:
+    """Whether a table exists.
+
+    Search opens the database read-only, and a read-only connection never runs
+    the schema — so a library indexed before favourites existed has no
+    favourites table until something opens it for writing. Readers check
+    rather than assume.
+    """
+    return conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)
+    ).fetchone() is not None
+
+
+def get_recipe_exists(conn: sqlite3.Connection, recipe_id: int) -> bool:
+    """Whether a recipe with this id is in the library."""
+    return conn.execute(
+        "SELECT 1 FROM recipes WHERE id = ?", (recipe_id,)).fetchone() is not None
+
+
+def favourite_ids(conn: sqlite3.Connection) -> set[int]:
+    """Current recipe ids of every favourite that still resolves."""
+    if not has_table(conn, "favourites"):
+        return set()
+    return {int(row[0]) for row in conn.execute(FAVOURITE_IDS_SQL)}
+
+
+def favourite_summary(conn: sqlite3.Connection) -> dict[str, int]:
+    """How many favourites there are, and how many no longer resolve.
+
+    An unresolved favourite is kept rather than deleted: its book may have been
+    moved, or re-read with a title the parser now spells differently, and it
+    comes back on its own when the book does.
+    """
+    if not has_table(conn, "favourites"):
+        return {"total": 0, "available": 0, "missing": 0}
+    stored = int(conn.execute("SELECT COUNT(*) FROM favourites").fetchone()[0])
+    resolved = len(favourite_ids(conn))
+    return {"total": stored, "available": resolved,
+            "missing": max(0, stored - resolved)}
 
 
 def failed_books(conn: sqlite3.Connection) -> list[sqlite3.Row]:

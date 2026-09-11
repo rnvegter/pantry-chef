@@ -640,7 +640,7 @@ Inside a container instead:
 docker compose run --rm pantry-chef sh -c "pip install pytest && pytest -q"
 ```
 
-256 tests should pass in about ten seconds. They generate their own sample
+270 tests should pass in about ten seconds. They generate their own sample
 cookbooks, so you do not need any books of your own to run them.
 
 The `dev` extra also installs the linter and the type checker, both of which

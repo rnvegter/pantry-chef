@@ -6,6 +6,7 @@ are per-request and read-only, so the app can stay up while a re-index runs.
 
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 from dataclasses import replace
 from pathlib import Path
@@ -77,7 +78,22 @@ def _page(name: str) -> FileResponse:
 
 
 
-app = FastAPI(title="Pantry Chef", docs_url="/api/docs", redoc_url=None)
+@contextlib.asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """Migrate an existing database before serving it.
+
+    Search uses read-only connections, which never run the schema, so a table
+    added in a newer version would otherwise be missing until something
+    happened to write.
+    """
+    target = Path(db_path())
+    if target.exists():
+        db.connect(target).close()
+    yield
+
+
+app = FastAPI(title="Pantry Chef", docs_url="/api/docs", redoc_url=None,
+              lifespan=_lifespan)
 
 
 @app.middleware("http")
@@ -125,6 +141,7 @@ class SearchRequest(BaseModel):
     diets: list[str] = Field(default_factory=list)
     free_from: list[str] = Field(default_factory=list)
     strict_diet: bool = False
+    favourites_only: bool = False
     sort: str = "best"
     require_timed: bool = False
     allow_long_wait: bool = True
@@ -166,6 +183,7 @@ def _result_json(result, *, full: bool = False, metric: bool = False) -> dict:
         "allergens": result.allergens,
         "diet_caveats": result.diet_caveats,
         "n_unknown": result.n_unknown,
+        "is_favourite": result.is_favourite,
         "has_image": bool(result.image_ref),
         "image_url": f"/api/recipe/{result.recipe_id}/image" if result.image_ref else None,
         "n_core": result.n_core,
@@ -205,6 +223,7 @@ def api_search(request: SearchRequest) -> JSONResponse:
             diets=request.diets,
             free_from=request.free_from,
             strict_diet=request.strict_diet,
+            favourites_only=request.favourites_only,
             sort=request.sort,
             require_timed=request.require_timed,
             allow_long_wait=request.allow_long_wait,
@@ -282,6 +301,45 @@ def api_complete(field: str = Q(default="title"),
         conn.close()
 
     return JSONResponse([{"value": value, "recipes": n} for value, n in rows])
+
+
+# --- favourites -------------------------------------------------------------
+
+@app.get("/api/favourites")
+def api_favourites() -> JSONResponse:
+    """How many favourites there are, and how many can no longer be found."""
+    conn = get_conn()
+    try:
+        return JSONResponse(db.favourite_summary(conn))
+    finally:
+        conn.close()
+
+
+@app.put("/api/favourites/{recipe_id}")
+def api_add_favourite(recipe_id: int) -> JSONResponse:
+    """Save a recipe. Idempotent: saving twice leaves one favourite."""
+    conn = get_writable_conn()
+    try:
+        if not db.add_favourite(conn, recipe_id):
+            raise HTTPException(status_code=404, detail="no such recipe")
+        return JSONResponse({"id": recipe_id, "is_favourite": True,
+                             **db.favourite_summary(conn)})
+    finally:
+        conn.close()
+
+
+@app.delete("/api/favourites/{recipe_id}")
+def api_remove_favourite(recipe_id: int) -> JSONResponse:
+    """Remove a recipe from favourites. Removing one that is not saved is fine."""
+    conn = get_writable_conn()
+    try:
+        if db.get_recipe_exists(conn, recipe_id) is False:
+            raise HTTPException(status_code=404, detail="no such recipe")
+        db.remove_favourite(conn, recipe_id)
+        return JSONResponse({"id": recipe_id, "is_favourite": False,
+                             **db.favourite_summary(conn)})
+    finally:
+        conn.close()
 
 
 @app.get("/api/recipe/{recipe_id}/image")
