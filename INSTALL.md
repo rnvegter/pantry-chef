@@ -340,11 +340,38 @@ docker compose run --rm pantry-chef pantry-chef stats
 
 ### D6. Open it
 
-**http://127.0.0.1:8077** — search is at `/`, the library manager at `/library`.
+On the machine running it: **http://localhost:8077** — search is at `/`, the
+library manager at `/library`.
 
-The port is bound to `127.0.0.1` deliberately. **Pantry Chef has no
-authentication**; it assumes only you can reach it. To put it on a network,
-follow [DEPLOY.md](DEPLOY.md), which puts a password in front of it.
+From a phone, tablet or another computer on the same network, use the
+machine's address instead. Find it with:
+
+```bash
+ipconfig getifaddr en0          # macOS (en1 if you are on Wi-Fi on some Macs)
+hostname -I                     # Linux — the first address listed
+```
+
+then open **http://that-address:8077**, e.g. `http://192.168.1.20:8077`. The
+first time, macOS may ask whether Docker may accept incoming connections;
+allow it, or the other devices will time out.
+
+> **Pantry Chef has no authentication.** Anyone who can reach port 8077 can
+> use it — search, favourites, and the Library page, which can start a
+> re-index. On your own home network that is usually what you want. On a
+> network you do not trust (an office, student housing, a café), keep it on
+> this machine only:
+>
+> ```bash
+> echo "PANTRY_CHEF_BIND=127.0.0.1" >> .env
+> docker compose up -d --force-recreate
+> ```
+>
+> After that only `http://localhost:8077` works, from this machine. To reach
+> it safely from outside your home, follow [DEPLOY.md](DEPLOY.md), which puts a
+> password and HTTPS in front of it.
+>
+> On Linux, Docker's published ports go around `ufw` and `firewalld`, so a
+> firewall rule will not close port 8077. `PANTRY_CHEF_BIND` will.
 
 ### D7. Day to day
 
@@ -376,6 +403,14 @@ docker compose up -d
 
 `--pull` also refreshes the Python base image, so you pick up its security
 updates rather than rebuilding on a stale layer.
+
+> **Upgrading from a version that listened on localhost only?** The Compose
+> file now publishes on every interface by default (see [D6](#d6-open-it)). To
+> keep the old behaviour, run this once before `docker compose up -d`:
+>
+> ```bash
+> grep -q '^PANTRY_CHEF_BIND=' .env || echo "PANTRY_CHEF_BIND=127.0.0.1" >> .env
+> ```
 
 If an upgrade changes how recipes are parsed, re-read your books to get the
 improvements:
@@ -493,6 +528,11 @@ podman run -d --name pantry-chef \
 ```
 
 Then open **http://127.0.0.1:8077**.
+
+Unlike the Compose file, this keeps it on this machine only. To reach it from a
+phone or another computer on your network, publish it with `-p 8077:8077`
+instead of `-p 127.0.0.1:8077:8077` — read the authentication note in
+[D6](#d6-open-it) first.
 
 ### E6. Day to day and upgrading
 

@@ -393,10 +393,19 @@ look in, and every command below says `/books`.
 
 ```bash
 echo "BOOKS=/srv/cookbooks" > .env
+echo "PANTRY_CHEF_BIND=127.0.0.1" >> .env
 ```
 
 Compose reads `.env` automatically. Use an absolute path with no trailing slash,
 and quote it if it contains spaces.
+
+**Do not skip the second line.** Out of the box `compose.yaml` publishes port
+8077 on every interface, which is right for a laptop on a home network and
+wrong for a server: Caddy's password only protects traffic that goes through
+Caddy, and anyone reaching 8077 directly would walk around it. Nor will a
+firewall save you — Docker's published ports bypass `ufw` and `firewalld`.
+`PANTRY_CHEF_BIND=127.0.0.1` keeps the port on the server itself, where only
+Caddy can reach it.
 
 Point at the folder that holds the books, not at individual files — sub-folders
 are searched, so a library organised by author or shelf works unchanged.
@@ -443,12 +452,15 @@ docker compose run --rm pantry-chef pantry-chef stats
 curl -s localhost:8077/api/stats | head -c 120
 ```
 
-Confirm it is only on loopback — `compose.yaml` publishes to `127.0.0.1`
-deliberately:
+Confirm it is only on loopback, which is what `PANTRY_CHEF_BIND` in `.env`
+is for:
 
 ```bash
 ss -tlnp | grep 8077          # 127.0.0.1:8077, never 0.0.0.0:8077
 ```
+
+If it shows `0.0.0.0:8077`, the line is missing from `.env` — add it as in C3,
+then `docker compose up -d --force-recreate`.
 
 ### C6. Survive a reboot
 
@@ -485,8 +497,10 @@ docker compose logs -f                            # logs
 sudo cp newbook.epub /srv/cookbooks/
 docker compose run --rm pantry-chef pantry-chef index /books
 
-# update
+# update — the grep line matters if you set this up before compose.yaml
+# stopped defaulting to localhost; it adds the bind address only if missing
 cd ~/pantry-chef && git pull
+grep -q '^PANTRY_CHEF_BIND=' .env || echo "PANTRY_CHEF_BIND=127.0.0.1" >> .env
 docker compose build && docker compose up -d
 
 # back up the index
@@ -531,7 +545,14 @@ Pick at least one. They stack, and the first two are the ones worth doing.
 
 With Tailscale you can skip certificates entirely and reach it at
 `http://server:8077` over the tailnet, or use `tailscale serve` for HTTPS on
-your tailnet domain.
+your tailnet domain. On the Docker route, bind to the server's Tailscale
+address rather than to localhost, so the port exists on the tailnet and nowhere
+else:
+
+```bash
+sed -i "s/^PANTRY_CHEF_BIND=.*/PANTRY_CHEF_BIND=$(tailscale ip -4)/" .env
+docker compose up -d --force-recreate
+```
 
 ---
 

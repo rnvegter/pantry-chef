@@ -26,8 +26,19 @@ services:
     image: pantry-chef:latest
     container_name: pantry-chef
     ports:
-      # Bound to localhost only: this is a personal app with no authentication.
-      - "127.0.0.1:8077:8077"
+      # Published on every interface by default, so a phone or tablet on the
+      # same network can reach it at http://<this machine's IP>:8077.
+      #
+      # Pantry Chef has NO authentication: anyone who can reach the port can
+      # use it, the Library page included. On a network you do not trust, or on
+      # a server with a reverse proxy in front (DEPLOY.md), keep it on this
+      # machine only:
+      #
+      #   echo "PANTRY_CHEF_BIND=127.0.0.1" >> .env
+      #
+      # On Linux, Docker's published ports bypass ufw and firewalld, so a
+      # firewall rule will not close this port; the bind address will.
+      - "${PANTRY_CHEF_BIND:-0.0.0.0}:8077:8077"
     volumes:
       # Your cookbooks, read-only. The app only ever reads them.
       - ${BOOKS:-./books}:/books:ro
