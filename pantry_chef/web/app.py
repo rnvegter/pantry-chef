@@ -7,6 +7,7 @@ are per-request and read-only, so the app can stay up while a re-index runs.
 from __future__ import annotations
 
 import contextlib
+import re
 import sqlite3
 from dataclasses import replace
 from pathlib import Path
@@ -32,6 +33,8 @@ from ..jobs import (
 from ..models import display_title, split_steps
 from ..parse.classify import difficulty
 from ..parse.metric import convert_text, to_metric_line
+from ..parse.scale import scale_line, scale_servings, servings_base
+from ..parse.timing import find_timers
 from ..search import (
     Query,
     facet_counts,
@@ -149,19 +152,34 @@ class SearchRequest(BaseModel):
     offset: int = 0
 
 
-def _ingredient_json(item, *, metric: bool = False) -> dict:
+_HAS_AMOUNT = re.compile(r"[\d½⅓⅔¼¾⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞]")
+# "1. Preheat the oven" — a method step the extractor filed as an ingredient.
+# It has no amount to adjust, so it gets no "not adjusted" warning either.
+_NUMBERED_STEP = re.compile(r"^\s*\d+[.)]\s")
+
+
+def _ingredient_json(item, *, metric: bool = False, scale: float = 1.0) -> dict:
     line = item.raw or item.display
+    shown = to_metric_line(line) if metric else line
+    scaled = False
+    if scale != 1:
+        shown, scaled = scale_line(shown, scale)
     return {
         "canonical": item.canonical,
         "display": item.display,
-        "line": to_metric_line(line) if metric else line,
+        "line": shown,
         "original": line,
         "have": item.have,
         "staple": item.is_staple,
+        # An amount the scaler could not read is left as the book wrote it; say
+        # so, rather than let an unscaled number pass for a scaled one.
+        "unscaled": (scale != 1 and not scaled and bool(_HAS_AMOUNT.search(shown))
+                     and not _NUMBERED_STEP.match(shown)),
     }
 
 
-def _result_json(result, *, full: bool = False, metric: bool = False) -> dict:
+def _result_json(result, *, full: bool = False, metric: bool = False,
+                 scale: float = 1.0) -> dict:
     data = {
         "id": result.recipe_id,
         "title": display_title(result.title),
@@ -199,9 +217,16 @@ def _result_json(result, *, full: bool = False, metric: bool = False) -> dict:
         data["instructions"] = (
             convert_text(result.instructions) if metric else result.instructions)
         data["steps"] = [convert_text(s) if metric else s for s in steps]
+        # Timers are found in the steps as sent, so their offsets line up.
+        data["step_timers"] = [find_timers(s) for s in data["steps"]]
         data["difficulty"] = difficulty(
             len(result.ingredients), len(steps),
             result.total_minutes, result.instructions)
+        data["scale"] = scale
+        data["servings_base"] = servings_base(result.servings)
+        data["servings_scaled"] = scale_servings(result.servings, scale)
+        data["ingredients"] = [_ingredient_json(i, metric=metric, scale=scale)
+                               for i in result.ingredients]
     return data
 
 
@@ -265,11 +290,14 @@ def api_search(request: SearchRequest) -> JSONResponse:
 
 @app.get("/api/recipe/{recipe_id}")
 def api_recipe(recipe_id: int, have: str = Q(default="", max_length=2000),
-               units: str = Q(default="metric")) -> JSONResponse:
+               units: str = Q(default="metric"),
+               scale: float = Q(default=1.0, gt=0, le=20)) -> JSONResponse:
     """One recipe in full, including its method.
 
     `have` carries the caller's pantry so the ingredient list can show what is
-    already in the kitchen rather than marking everything as missing.
+    already in the kitchen rather than marking everything as missing. `scale`
+    multiplies the ingredient amounts — 2 for twice the servings. The method is
+    left as written: its times and pan sizes do not scale the same way.
     """
     conn = get_conn()
     try:
@@ -278,7 +306,7 @@ def api_recipe(recipe_id: int, have: str = Q(default="", max_length=2000),
         if not recipe:
             raise HTTPException(status_code=404, detail="no such recipe")
         return JSONResponse(
-            _result_json(recipe, full=True, metric=(units != "original")))
+            _result_json(recipe, full=True, metric=(units != "original"), scale=scale))
     finally:
         conn.close()
 

@@ -1,0 +1,184 @@
+/* Cook mode and its timers.
+
+   Read at arm's length, with wet hands, on a phone propped against something:
+   so the step is set large, the buttons are thumb-sized, and nothing on screen
+   competes with the one instruction that matters now. Colours are the shared
+   tokens from app.css, so dark mode follows the system as everywhere else. */
+
+html.cook-open, html.cook-open body { overflow: hidden; }
+
+.cook {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; flex-direction: column;
+  background: var(--bg); color: var(--ink);
+}
+
+/* --- top bar ----------------------------------------------------------------- */
+
+.cook-bar {
+  display: flex; align-items: center; gap: 12px;
+  padding: max(12px, env(safe-area-inset-top)) clamp(14px, 3vw, 28px) 12px;
+  background: var(--surface); border-bottom: 1px solid var(--line);
+}
+.cook-where { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.cook-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cook-count { font-size: 13px; color: var(--muted); }
+.cook-awake {
+  font-size: 12px; padding: 3px 10px; border-radius: 999px; white-space: nowrap;
+  background: var(--ok-soft); color: var(--ok);
+}
+.cook-awake.off { background: var(--warn-soft); color: var(--warn); }
+.cook-close, .cook-ing-close {
+  flex: none; width: 40px; height: 40px; padding: 0; border-radius: 999px;
+  border: 1px solid var(--line); background: none; color: var(--ink);
+  font: inherit; font-size: 17px; cursor: pointer;
+}
+.cook-close:hover, .cook-ing-close:hover { border-color: var(--accent); color: var(--accent); }
+@media (max-width: 560px) { .cook-awake { display: none; } }
+
+.cook-progress { height: 4px; background: var(--line); }
+.cook-progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .25s ease; }
+
+/* --- the step ------------------------------------------------------------------ */
+
+.cook-body { flex: 1; min-height: 0; display: flex; position: relative; }
+.cook-stage {
+  flex: 1; overflow-y: auto; overscroll-behavior: contain;
+  /* Vertical scrolling stays the browser's; horizontal swipes come to us. */
+  touch-action: pan-y;
+  padding: clamp(24px, 6vh, 64px) clamp(18px, 6vw, 72px) 140px;
+}
+.cook-stage > * { max-width: 40rem; margin-left: auto; margin-right: auto; }
+.cook-stage:focus { outline: none; }
+
+.cook-num {
+  font-family: Georgia, "Iowan Old Style", serif; font-weight: 700;
+  font-size: 14px; letter-spacing: .3em; text-transform: uppercase;
+  color: var(--accent); margin-bottom: 14px;
+}
+.cook-text {
+  margin: 0; font-family: Georgia, "Iowan Old Style", serif;
+  font-size: clamp(22px, 1rem + 1.8vw, 34px); line-height: 1.5;
+}
+.cook-text.long { font-size: clamp(19px, .9rem + 1.2vw, 27px); }
+.cook-hint { color: var(--muted); font-size: 14px; margin-top: 24px; }
+
+/* A duration in the text is also the button that times it. */
+.cook-timer-start {
+  display: inline-flex; align-items: center; gap: .25em;
+  margin: 0 .05em; padding: 0 .35em; line-height: 1.3;
+  font: inherit; color: inherit; cursor: pointer;
+  border: 2px solid var(--accent); border-radius: .45em; background: var(--accent-soft);
+}
+.cook-timer-start svg { width: .8em; height: .8em; flex: none; color: var(--accent); }
+.cook-timer-start:hover { background: var(--accent); color: var(--on-accent); }
+.cook-timer-start:hover svg { color: inherit; }
+.cook-timer-start:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+.cook-h {
+  font-family: Georgia, "Iowan Old Style", serif;
+  font-size: clamp(26px, 1rem + 2vw, 38px); margin: 0 0 6px;
+}
+.cook-sub { color: var(--muted); margin: 0 0 22px; }
+.cook-resumed {
+  font-size: 14px; color: var(--muted); background: var(--accent-soft);
+  padding: 8px 12px; border-radius: 9px; margin-bottom: 22px;
+}
+
+/* --- the ingredient checklist (first screen and side panel) ------------------ */
+
+.cook-checklist { list-style: none; margin: 0; padding: 0; }
+.cook-checklist li + li { border-top: 1px solid var(--line); }
+.cook .cook-checklist label {
+  /* app.css styles every label as a small caps form caption; not these. */
+  display: flex; align-items: flex-start; gap: 14px; margin: 0; padding: 12px 2px;
+  font-size: 18px; text-transform: none; letter-spacing: 0; color: var(--ink); cursor: pointer;
+}
+.cook-checklist input { flex: none; width: 22px; height: 22px; margin: 3px 0 0; accent-color: var(--accent); }
+.cook-checklist input:checked + span { color: var(--muted); text-decoration: line-through; }
+
+.cook-ing {
+  flex: none; width: min(360px, 34vw); overflow-y: auto;
+  padding: 22px 22px 140px; background: var(--surface); border-left: 1px solid var(--line);
+}
+.cook-ing-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.cook-ing h2 { font-family: Georgia, "Iowan Old Style", serif; font-size: 20px; margin: 0; }
+.cook-ing .note { margin: 4px 0 8px; }
+.cook .cook-ing .cook-checklist label { font-size: 15px; padding: 9px 0; }
+.cook-ing .cook-checklist input { width: 19px; height: 19px; margin-top: 1px; }
+
+/* Beside the step on a wide screen; a sheet over it on a phone. */
+@media (min-width: 1000px) { .cook-ing-close { display: none; } }
+@media (max-width: 999px) {
+  .cook-ing {
+    position: absolute; inset: auto 0 0 0; z-index: 2; width: auto; max-height: 72%;
+    padding-bottom: 24px; border-left: 0; border-top: 1px solid var(--line);
+    border-radius: 18px 18px 0 0; box-shadow: 0 -12px 32px rgba(0, 0, 0, .18);
+  }
+}
+
+/* --- back and next ------------------------------------------------------------- */
+
+.cook-nav {
+  display: grid; grid-template-columns: 1fr 2fr; gap: 12px;
+  padding: 12px clamp(14px, 3vw, 28px) max(12px, env(safe-area-inset-bottom));
+  background: var(--surface); border-top: 1px solid var(--line);
+}
+.cook-nav button { min-height: 58px; font-size: 18px; border-radius: 12px; }
+
+/* --- timers ----------------------------------------------------------------------- */
+
+.cook-tray {
+  position: fixed; z-index: 70; right: 16px;
+  bottom: calc(96px + env(safe-area-inset-bottom));
+  display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+  max-width: calc(100vw - 32px);
+}
+/* On the recipe page, with cook mode closed, there is no nav bar to clear. */
+.cook-tray.floating { bottom: calc(16px + env(safe-area-inset-bottom)); }
+/* Beside the ingredients panel on a wide screen, not on top of it. */
+@media (min-width: 1000px) {
+  .cook:not([hidden]).with-ing ~ .cook-tray { right: calc(min(360px, 34vw) + 16px); }
+}
+
+.tray-timer {
+  display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 8px;
+  border-radius: 14px; background: var(--surface); border: 1px solid var(--line);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .14);
+}
+.tray-go {
+  background: none; border: 0; padding: 2px 4px; cursor: pointer; text-align: left;
+  font: inherit; font-size: 12px; font-weight: 600; line-height: 1.25; color: var(--muted);
+}
+.tray-go small { display: block; font-weight: 400; }
+.tray-left {
+  min-width: 4.4ch; text-align: right;
+  font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.tray-btn {
+  width: 38px; height: 38px; padding: 0; border-radius: 10px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--bg); color: var(--ink); font: inherit; font-size: 13px;
+}
+.tray-btn:hover { border-color: var(--accent); color: var(--accent); }
+.tray-timer.paused .tray-left { color: var(--muted); }
+
+.tray-timer.done {
+  background: var(--bad); border-color: var(--bad); color: var(--on-bad);
+  animation: tray-pulse 1s ease-in-out infinite;
+}
+.tray-timer.done .tray-go { color: inherit; }
+.tray-btn.ok {
+  width: auto; padding: 0 18px; border: 0; font-weight: 700;
+  background: var(--on-bad); color: var(--bad);
+}
+.tray-timer.flash { animation: tray-flash .7s ease-out; }
+
+@keyframes tray-pulse { 50% { transform: scale(1.04); } }
+@keyframes tray-flash { from { box-shadow: 0 0 0 5px var(--accent); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .tray-timer.done, .tray-timer.flash { animation: none; }
+  .cook-progress i { transition: none; }
+}
+
+@media print { .cook, .cook-tray { display: none !important; } }

@@ -6,6 +6,20 @@ const params = new URLSearchParams(location.search);
 let units = params.get("units") || "metric";
 const have = params.get("have") || "";
 
+// The server accepts up to 20x; beyond that a recipe is a different recipe.
+const MAX_SCALE = 20;
+// For a book that gives no servings there is no count to step through, so the
+// stepper walks these multipliers instead.
+const MULTIPLIERS = [0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8];
+
+let scale = clampScale(Number(params.get("scale")) || 1);
+let current = null;          // the recipe as last loaded
+let request = 0;             // so a slow response cannot overwrite a newer one
+
+function clampScale(value) {
+  return Math.min(MAX_SCALE, Math.max(0.05, value));
+}
+
 const ICONS = {
   servings: `<svg width="26" height="26" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
@@ -21,6 +35,9 @@ const ICONS = {
   count: `<svg width="26" height="26" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
     <path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>`,
+  cook: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"
+    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 11h18M5 11v6a3 3 0 0 0 3 3h8a3 3 0 0 0 3-3v-6M9 11V8a3 3 0 0 1 6 0v3"/></svg>`,
 };
 
 // Most specific first: a dessert filed under "lunch" should read as dessert.
@@ -47,20 +64,135 @@ function fmtTime(m, estimate) {
   return estimate ? "~" + text : text;
 }
 
-async function load() {
+function fmtFactor(f) {
+  const nice = { 0.25: "¼", 0.5: "½", 0.75: "¾", 1.5: "1½" };
+  return nice[f] || String(Math.round(f * 100) / 100);
+}
+
+async function fetchRecipe() {
   const query = new URLSearchParams({ units });
   if (have) query.set("have", have);
+  if (scale !== 1) query.set("scale", String(scale));
+  const res = await fetch(`/api/recipe/${recipeId}?` + query);
+  if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+  return res.json();
+}
 
+// --- servings ---------------------------------------------------------------
+
+function targetServings(r) {
+  return r.servings_base ? Math.max(1, Math.round(r.servings_base * r.scale)) : null;
+}
+
+/** What the page calls the current quantity: "6 servings", "×2", "4 to 6". */
+function servingsLabel(r) {
+  const target = targetServings(r);
+  if (target) return `${target} serving${target === 1 ? "" : "s"}`;
+  return r.scale === 1 ? "" : `×${fmtFactor(r.scale)} the book’s amounts`;
+}
+
+function nextScale(r, direction) {
+  const base = r.servings_base;
+  if (base) {
+    const most = Math.floor(base * MAX_SCALE);
+    const target = Math.min(most, Math.max(1, targetServings(r) + direction));
+    return target / base;
+  }
+  let i = MULTIPLIERS.findIndex(m => m >= r.scale - 1e-9);
+  if (i === -1) i = MULTIPLIERS.length - 1;
+  if (direction < 0 && MULTIPLIERS[i] > r.scale + 1e-9) i -= 1;   // between two steps
+  return MULTIPLIERS[Math.min(MULTIPLIERS.length - 1, Math.max(0, i + direction))];
+}
+
+function servingsCell(r) {
+  const target = targetServings(r);
+  const value = target ? String(target) : `×${fmtFactor(r.scale)}`;
+  const book = (r.servings || "").trim();
+  let from = "";
+  if (r.scale !== 1) from = book ? `book: ${book}` : "book gives no servings";
+  else if (!target) from = "book gives no servings";
+  else if (book && book !== String(target)) from = book;       // "4 to 6", "8 scones"
+
+  const less = nextScale(r, -1), more = nextScale(r, +1);
+  return `${ICONS.servings}<div class="k">Servings</div>
+    <div class="v stepper${r.scale !== 1 ? " scaled" : ""}">
+      <button type="button" class="step" data-scale="${less}" ${less === r.scale ? "disabled" : ""}
+              aria-label="Fewer servings">−</button>
+      <output aria-live="polite" aria-label="Servings">${esc(value)}</output>
+      <button type="button" class="step" data-scale="${more}" ${more === r.scale ? "disabled" : ""}
+              aria-label="More servings">+</button>
+    </div>
+    ${from ? `<div class="from">${esc(from)}</div>` : ""}`;
+}
+
+function ingredientItems(r) {
+  return (r.ingredients || []).map(i => {
+    const classes = [i.have ? "have" : "", i.staple ? "staple" : ""].filter(Boolean).join(" ");
+    const note = i.unscaled
+      ? `<span class="why unscaled">amount not adjusted — scale by eye</span>`
+      : i.staple ? `<span class="why">store cupboard</span>` : "";
+    return `<li class="${classes}">${esc(i.line || i.display)}${note}</li>`;
+  }).join("");
+}
+
+function scaleNote(r) {
+  if (r.scale === 1) return "";
+  const book = (r.servings || "").trim();
+  return `Scaled ×${esc(fmtFactor(r.scale))}${book ? ` from the book’s ${esc(book)}` : ""}.
+    <button type="button" class="linkish" data-scale="1">Reset</button>`;
+}
+
+function methodNote(r) {
+  if (r.scale === 1) return "";
+  return "The method is as the book wrote it: cooking times, pan sizes and any "
+    + "amounts it mentions are for the original quantity.";
+}
+
+/** Redraw only what scaling changes, so the photo and scroll position stay put. */
+function paintScaled(r) {
+  document.getElementById("servingsFact").innerHTML = servingsCell(r);
+  document.getElementById("ingredientList").innerHTML = ingredientItems(r);
+  const note = document.getElementById("scaleNote");
+  note.innerHTML = scaleNote(r);
+  note.hidden = r.scale === 1;
+  const method = document.getElementById("methodNote");
+  method.textContent = methodNote(r);
+  method.hidden = r.scale === 1;
+  window.PantryCook?.init(r);
+}
+
+async function setScale(next) {
+  scale = clampScale(next);
+  const query = new URLSearchParams(location.search);
+  if (scale === 1) query.delete("scale"); else query.set("scale", String(scale));
+  const search = query.toString();
+  history.replaceState(history.state, "",
+    location.pathname + (search ? "?" + search : "") + location.hash);
+
+  const mine = ++request;
+  try {
+    const r = await fetchRecipe();
+    if (mine !== request) return;
+    current = r;
+    paintScaled(r);
+  } catch (_) {
+    if (mine === request) document.getElementById("scaleNote").textContent =
+      "Could not rescale — is the server still running?";
+  }
+}
+
+// --- the page -------------------------------------------------------------------
+
+async function load() {
   let r;
   try {
-    const res = await fetch(`/api/recipe/${recipeId}?` + query);
-    if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
-    r = await res.json();
+    r = await fetchRecipe();
   } catch (err) {
     document.getElementById("page").innerHTML =
       `<div class="empty">${esc(err.message)}</div>`;
     return;
   }
+  current = r;
 
   document.title = r.title + " · Pantry Chef";
   const category = chooseCategory(r);
@@ -72,15 +204,11 @@ async function load() {
   if (r.allergens && r.allergens.length)
     tags.push(`<span class="tag warn">contains ${r.allergens.map(esc).join(", ")}</span>`);
 
-  const ingredients = (r.ingredients || []).map(i => {
-    const classes = [i.have ? "have" : "", i.staple ? "staple" : ""].filter(Boolean).join(" ");
-    return `<li class="${classes}">${esc(i.line || i.display)}${
-      i.staple ? `<span class="why">store cupboard</span>` : ""}</li>`;
-  }).join("");
-
-  const steps = (r.steps || []).length
+  const hasSteps = (r.steps || []).length > 0;
+  const steps = hasSteps
     ? `<ol>${r.steps.map(s => `<li>${esc(s)}</li>`).join("")}</ol>`
     : `<p class="note">No method was captured for this recipe — see the book, page ${r.page || "?"}.</p>`;
+  const timerCount = (r.step_timers || []).reduce((n, list) => n + list.length, 0);
 
   const caveat = [
     r.diet_caveats || "",
@@ -101,8 +229,7 @@ async function load() {
            alt="${esc(r.title)}" loading="lazy">` : ""}
 
       <div class="facts">
-        <div>${ICONS.servings}<div class="k">Servings</div>
-          <div class="v">${esc(r.servings || "—")}</div></div>
+        <div id="servingsFact"></div>
         <div>${ICONS.time}<div class="k">Time</div>
           <div class="v">${esc(fmtTime(r.total_minutes, r.time_is_estimate))}</div></div>
         <div>${ICONS.difficulty}<div class="k">Difficulty</div>
@@ -111,13 +238,21 @@ async function load() {
           <div class="v">${(r.ingredients || []).length}</div></div>
       </div>
 
+      ${hasSteps ? `<div class="cook-cta">
+        <button type="button" class="go" id="cookStart">${ICONS.cook}Start cooking</button>
+        <span class="note">One step at a time, large enough to read from the stove${
+          timerCount ? `, with ${timerCount} timer${timerCount === 1 ? "" : "s"} ready to start` : ""}.</span>
+      </div>` : ""}
+
       <div class="columns">
         <div class="ingredients">
           <h2>Ingredients</h2>
-          <ul>${ingredients}</ul>
+          <p class="scale-note" id="scaleNote" hidden></p>
+          <ul id="ingredientList"></ul>
         </div>
         <div class="directions">
           <h2>Directions</h2>
+          <p class="method-note" id="methodNote" hidden></p>
           ${steps}
         </div>
       </div>
@@ -140,6 +275,8 @@ async function load() {
         ${r.time_is_estimate ? " · time is estimated, not stated in the book" : ""}
       </div>
     </div>`;
+
+  paintScaled(r);
 
   // A photo that cannot be read should leave no gap; bound here rather than as
   // an inline onerror, which the Content-Security-Policy forbids.
@@ -169,10 +306,23 @@ async function load() {
     units = units === "metric" ? "original" : "metric";
     const next = new URLSearchParams(location.search);
     next.set("units", units);
-    history.replaceState({}, "", location.pathname + "?" + next);
+    history.replaceState(history.state, "", location.pathname + "?" + next + location.hash);
     load();
   };
   document.getElementById("print").onclick = () => window.print();
+
+  const start = document.getElementById("cookStart");
+  if (start) start.onclick = () => window.PantryCook.open(current, servingsLabel(current));
+  if (location.hash === "#cook" && hasSteps && !window.PantryCook.isOpen()) {
+    window.PantryCook.open(current, servingsLabel(current));
+  }
 }
+
+// One listener for the stepper and the reset link, which are redrawn on every
+// change and so cannot keep handlers of their own.
+document.getElementById("page").addEventListener("click", (e) => {
+  const button = e.target.closest("[data-scale]");
+  if (button && !button.disabled) setScale(Number(button.dataset.scale));
+});
 
 load();

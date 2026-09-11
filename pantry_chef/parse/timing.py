@@ -185,3 +185,111 @@ def extract_time(header_text: str, instructions: str = "") -> RecipeTime:
         result.source = "estimate"
 
     return result
+
+
+# --- timers for cook mode -----------------------------------------------------
+#
+# Cook mode turns "simmer for 20 minutes" into a button that starts a timer.
+# That needs the position of each duration in the step as displayed, so unlike
+# the functions above this reads the text as it is, without normalising it
+# first — normalising "2½" to "2 1/2" would shift every offset after it.
+
+_TIMER_NUM = (
+    r"(?:\d+\s*[-–]\s*\d+\s*/\s*\d+"         # 1-1/2
+    r"|\d+\s+\d+\s*/\s*\d+"                   # 1 1/2
+    r"|\d+\s*/\s*\d+"                         # 1/2
+    r"|\d+(?:[.,]\d+)?\s*[½¼¾⅓⅔]?"            # 20, 2.5, 2½
+    r"|[½¼¾⅓⅔])"                              # ½
+)
+_TIMER_WORDS = {
+    "a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
+    "twelve": 12, "fifteen": 15, "twenty": 20, "thirty": 30, "forty": 40,
+    "forty-five": 45, "sixty": 60, "ninety": 90,
+}
+_TIMER_AMOUNT = (
+    rf"(?:{_TIMER_NUM}|{'|'.join(sorted(_TIMER_WORDS, key=len, reverse=True))})")
+_SECONDS_PER = {"h": 3600, "m": 60, "s": 1}
+
+# The number and the unit must be separated by space, not a hyphen: "a
+# 15-minute walk" and "30-second bursts" describe something, they are not an
+# instruction to wait.
+_TIMER_RE = re.compile(
+    rf"(?<![\w-])(?:(?P<half>half an hour)"
+    rf"|(?P<a>{_TIMER_AMOUNT})(?:\s*(?:-|–|—|\bto\b|\bor\b)\s*(?P<b>{_TIMER_AMOUNT}))?"
+    r"\s*(?P<unit>hours?|hrs?|h|minutes?|mins?|seconds?|secs?)\b"
+    rf"(?:,?\s*(?:and\s+)?(?P<a2>{_TIMER_NUM})\s*(?P<unit2>minutes?|mins?|seconds?|secs?)\b)?)",
+    re.IGNORECASE,
+)
+
+# Longer than this is a wait, not a timer: "refrigerate for at least 24 hours".
+_TIMER_MAX_SECONDS = 12 * 3600
+
+
+def _timer_value(text: str) -> float:
+    lowered = text.strip().lower()
+    if lowered in _TIMER_WORDS:
+        return float(_TIMER_WORDS[lowered])
+    return _value(normalize_text(text).strip())
+
+
+def _timer_label(seconds: int) -> str:
+    if seconds >= 3600:
+        hours, rest = divmod(seconds, 3600)
+        return f"{hours} h {rest // 60} min" if rest >= 60 else f"{hours} h"
+    if seconds >= 60:
+        minutes, rest = divmod(seconds, 60)
+        if rest == 0:
+            return f"{minutes} min"
+        return f"{minutes}½ min" if rest == 30 else f"{minutes} min {rest} s"
+    return f"{seconds} s"
+
+
+def _range_label(low: int, high: int | None) -> str:
+    if not high or high == low:
+        return _timer_label(low)
+    # "2–3 min" reads better than "2 min – 3 min" when the units agree.
+    low_text, high_text = _timer_label(low), _timer_label(high)
+    low_parts, high_parts = low_text.split(" "), high_text.split(" ")
+    if len(low_parts) == len(high_parts) == 2 and low_parts[1] == high_parts[1]:
+        return f"{low_parts[0]}–{high_text}"
+    return f"{low_text} – {high_text}"
+
+
+def _utf16(text: str, index: int) -> int:
+    """A Python string index as a JavaScript one, which counts UTF-16 units."""
+    return len(text[:index].encode("utf-16-le")) // 2
+
+
+def find_timers(text: str) -> list[dict]:
+    """Every duration in one method step that is worth a timer.
+
+    Each timer carries its position in `text` (in UTF-16 units, as the browser
+    counts), the seconds to set it for, and a short label. A range such as
+    "8 to 10 minutes" is set for its lower end — the moment to start checking —
+    with the upper end kept alongside.
+    """
+    timers = []
+    for m in _TIMER_RE.finditer(text):
+        if m.group("half"):
+            low, high = 1800, None
+        else:
+            per = _SECONDS_PER[m.group("unit")[0].lower()]
+            low_f = _timer_value(m.group("a")) * per
+            high_f = _timer_value(m.group("b")) * per if m.group("b") else None
+            if m.group("a2"):
+                extra = _timer_value(m.group("a2")) * _SECONDS_PER[m.group("unit2")[0].lower()]
+                low_f += extra
+                high_f = high_f + extra if high_f is not None else None
+            low = round(low_f)
+            high = round(high_f) if high_f is not None else None
+        if not 5 <= low <= _TIMER_MAX_SECONDS:
+            continue
+        timers.append({
+            "start": _utf16(text, m.start()),
+            "end": _utf16(text, m.end()),
+            "seconds": low,
+            "max_seconds": high if high and high > low else None,
+            "label": _range_label(low, high if high and high > low else None),
+        })
+    return timers

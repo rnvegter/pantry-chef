@@ -126,6 +126,55 @@ Two things on it are worth explaining:
 A **Show original units** button flips back to exactly what the book wrote; the
 originals are always kept, so the toggle is lossless.
 
+### Scaling servings
+
+The servings figure is a stepper: **−** and **+** change the number of people,
+and the ingredient list is rescaled to match — in metric or in the book's own
+units. A book that gives no servings gets multipliers instead (×½, ×1½, ×2…).
+"4 to 6" is scaled from the 4, which errs towards a little too much food.
+
+Only the amount a cook measures out is changed, and brackets are read with
+care, because they mean different things in different places:
+
+| Line | ×2 |
+|---|---|
+| 1½ cups (338 g) cottage cheese | 3 cups (675 g) cottage cheese — the bracket restates the amount |
+| 1 (14-oz) can tomatoes | 2 (14-oz) cans tomatoes — the bracket is the size of each can |
+| 1 cup coconut milk (about half a 13.5-ounce can) | 2 cups coconut milk (about half a 13.5-ounce can) |
+| 1 large egg | 2 large eggs |
+
+Metric amounts are rounded the way you would weigh them (1.02 kg of chicken
+becomes 1 kg), and fractions come out as a recipe writes them (1½, ⅔), never
+1.3333. On the six development cookbooks, 99% of ingredient lines with an
+amount scale; the rest — "1-inch piece ginger", amounts in a format nothing
+recognises — are left exactly as written and marked *amount not adjusted*,
+rather than passed off as scaled. The method is not rescaled either, and the
+page says so: cooking times and pan sizes do not grow in proportion.
+
+### Cook mode
+
+**Start cooking** opens the recipe one step at a time, in type large enough to
+read from the stove:
+
+- **Before you start** lists the ingredients — at the scaled amounts — as a
+  checklist to tick off as you get them out. On a wide screen the list stays
+  beside every step; on a phone it is a sheet you pull up.
+- **Timers.** Every duration in a step is a button: tap "8 to 10 minutes" and
+  a timer starts, set for the lower end, when it is time to start checking.
+  Several can run at once. They keep going if you leave cook mode, and when
+  one finishes it beeps, vibrates where the device can, turns red and puts ⏰
+  in the tab title. Descriptions such as "a 15-minute walk" or "30-second
+  bursts" are not mistaken for instructions, and waits over 12 hours get no
+  button.
+- **Next and back** by button, arrow keys or swiping. Your place, ticks and
+  running timers survive a reload for 12 hours, and the phone's back gesture
+  leaves cook mode rather than the page.
+- **The screen stays on** while cook mode is open — where the browser allows
+  it. Browsers only grant that to secure pages, so it works on `localhost` and
+  over HTTPS (see [DEPLOY.md](DEPLOY.md)), but not when a phone opens
+  `http://192.168.x.x:8077`; cook mode says so in its top bar rather than
+  letting the screen dim unannounced.
+
 ### The photograph
 
 If the book has a photo of the dish, the card shows it. Images are **referenced,
@@ -437,10 +486,11 @@ Worth knowing before you trust a result:
 .venv/bin/python -m pytest -q
 ```
 
-281 tests covering quantity parsing, ingredient canonicalisation, time
+351 tests covering quantity parsing, ingredient canonicalisation, time
 extraction, meal and cuisine classification, allergen and diet derivation,
-metric conversion, title casing and step splitting, photo extraction,
-downscaling and thumbnails, favourites, block parsing, segmentation
+metric conversion, serving scaling, cook-mode timers, title casing and step
+splitting, photo extraction, downscaling and thumbnails, favourites, block
+parsing, segmentation
 across all three book shapes, ingest, resumability, schema migration, failure
 isolation and diagnosis, background indexing jobs, search ranking, every filter,
 and the HTTP API end to end. `ruff` and `mypy` are configured and clean; both
