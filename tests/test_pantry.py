@@ -11,6 +11,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from pantry_chef import shopping
 from pantry_chef.db import (
     _complete_book_column,
     add_source,
@@ -46,7 +47,7 @@ from pantry_chef.jobs import (
     list_directories,
 )
 from pantry_chef.models import display_title, split_steps
-from pantry_chef.parse import diet
+from pantry_chef.parse import classify, diet, lexicon
 from pantry_chef.parse.classify import (
     classify_cuisine,
     classify_meal,
@@ -64,7 +65,7 @@ from pantry_chef.parse.metric import (
     convert_text,
     to_metric_line,
 )
-from pantry_chef.parse.quantities import parse_quantity
+from pantry_chef.parse.quantities import fold_accents, parse_quantity
 from pantry_chef.parse.segment import find_recipes
 from pantry_chef.parse.timing import extract_time
 from pantry_chef.search import (
@@ -158,6 +159,47 @@ def test_unknown_ingredient_is_kept_not_dropped():
 def test_word_order_does_not_change_identity(a, b):
     # Otherwise one ingredient splits into two keys and match rates halve.
     assert canonicalize(a) == canonicalize(b)
+
+
+@pytest.mark.parametrize("line,canonical,display", [
+    ("2 jalapeños, seeded", "jalapeno", "jalapeños"),
+    ("1/2 cup crème fraîche", "creme fraiche", "crème fraîche"),
+    ("Tajín, for sprinkling", "tajin", "tajín"),
+])
+def test_accented_letters_survive(line, canonical, display):
+    # The [a-z] clean-up used to turn each accented letter into a space, so
+    # "jalapeño" indexed as "jalape o". The key is folded; the display is not.
+    parsed = parse_ingredient_line(line)[0]
+    assert parsed.canonical == canonical
+    assert parsed.display == display
+
+
+@pytest.mark.parametrize("typed", ["jalapeno", "jalapeño", "Jalapeños", "JALAPEÑO"])
+def test_accents_do_not_change_identity(typed):
+    assert canonicalize(typed) == "jalapeno"
+
+
+def test_accented_lexicon_entries_match():
+    assert diet.allergens_for(canonicalize("crème fraîche")) == {"milk"}
+    assert canonicalize("creme fraiche") == canonicalize("crème fraîche")
+    assert classify_cuisine("Crème Brûlée", "", ["egg", "sugar"])[0] == "french"
+
+
+def test_lexicon_is_accent_folded():
+    # Canonicals are folded, so an entry spelled with accents could never match.
+    word_lists = (classify._SECTION_MEALS, classify._TITLE_MEALS,
+                  classify._CUISINE_TITLES, classify._CUISINE_WORDS)
+    entries = [
+        *lexicon.SYNONYMS, *lexicon.SYNONYMS.values(),
+        *lexicon.EXACT_SYNONYMS, *lexicon.EXACT_SYNONYMS.values(),
+        *lexicon.INGREDIENT_NOUNS_SPACED, *lexicon.STAPLES, *lexicon.DESCRIPTORS,
+        *diet.ALLERGEN_INDEX, *diet.KNOWN_SAFE, *diet.MEAT, *diet.RED_MEAT,
+        *diet.RENNET_CHEESES,
+        *(name for sig in classify._CUISINE_INGREDIENTS.values() for name in sig),
+        *(word for table in word_lists for words in table.values() for word in words),
+        *classify.ADVANCED_TECHNIQUES, *shopping._PRODUCE,
+    ]
+    assert [e for e in entries if fold_accents(e) != e] == []
 
 
 def test_conjunction_splits_only_when_both_sides_resolve():
@@ -372,6 +414,50 @@ def test_suggestions_come_from_the_library(indexed_db):
     conn = connect(indexed_db, read_only=True)
     names = [s["name"] for s in suggest_ingredients(conn, "chick")]
     assert "chicken" in names
+
+
+@pytest.fixture(scope="module")
+def accented_db(tmp_path_factory, fixtures_exist):
+    """A one-recipe book whose ingredients are printed with their accents."""
+    import make_fixtures
+
+    salsa = {
+        "title": "Charred Jalapeño Salsa",
+        "meta": "Serves 4 | Total time: 15 minutes",
+        "ingredients": [
+            "2 jalapeños, seeded",
+            "4 ripe tomatoes, chopped",
+            "1/2 cup crème fraîche",
+            "Tajín, for sprinkling",
+        ],
+        "method": [
+            "Char the jalapeños in a dry pan, then chop them finely.",
+            "Stir them through the tomatoes and spoon over the crème fraîche.",
+            "Sprinkle with Tajín and serve.",
+        ],
+    }
+    books = tmp_path_factory.mktemp("accented-books")
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(make_fixtures, "RECIPES", [salsa])
+        make_fixtures.write_epub(books / "salsa.epub")
+    path = tmp_path_factory.mktemp("accented-db") / "salsa.db"
+    ingest([books], path, workers=1, force=True)
+    return path
+
+
+@pytest.mark.parametrize("typed", ["jalapeno", "jalapeño"])
+def test_pantry_matches_with_or_without_accents(accented_db, typed):
+    conn = connect(accented_db, read_only=True)
+    results, info = search(conn, Query(have=[typed], max_missing=8))
+    assert "jalapeno" not in info["unknown"]
+    salsa = next(r for r in results if "Salsa" in r.title)
+    assert "jalapeno" not in {m.canonical for m in salsa.missing}
+
+
+def test_suggestions_fold_accents(accented_db):
+    conn = connect(accented_db, read_only=True)
+    for typed in ("jalapeñ", "jalapen", "crème"):
+        assert suggest_ingredients(conn, typed), typed
 
 
 # --- meal classification ---------------------------------------------------

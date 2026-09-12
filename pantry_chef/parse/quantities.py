@@ -76,6 +76,25 @@ def normalize_text(line: str) -> str:
     ).replace("\u2044", "/")
 
 
+# Letters whose accent is part of the letter itself, so NFKD cannot split it off.
+_UNSPLIT_LETTERS = str.maketrans({
+    "ß": "ss", "æ": "ae", "Æ": "AE", "œ": "oe", "Œ": "OE", "ø": "o", "Ø": "O",
+    "ł": "l", "Ł": "L", "đ": "d", "Đ": "D", "ð": "d", "Ð": "D", "þ": "th",
+    "Þ": "TH", "ı": "i",
+})
+
+
+def fold_accents(text: str) -> str:
+    """Fold accented letters onto their base letter: "jalapeño" -> "jalapeno".
+
+    Canonical ingredient names are always folded, and so is everything they are
+    compared with, so a pantry typed without accents matches a book that
+    printed them and the other way round.
+    """
+    decomposed = unicodedata.normalize("NFKD", text.translate(_UNSPLIT_LETTERS))
+    return "".join(c for c in decomposed if not unicodedata.combining(c))
+
+
 def strip_bullet(line: str) -> str:
     """Remove list bullets and stray leading punctuation."""
     return _LEADING_BULLET_RE.sub("", line).strip()

@@ -26,7 +26,7 @@ from .lexicon import (
     SYNONYMS,
     UNITS,
 )
-from .quantities import has_leading_quantity, normalize_text, parse_quantity
+from .quantities import fold_accents, has_leading_quantity, normalize_text, parse_quantity
 
 # Multi-word lexicon entries, longest first, for containment matching.
 _MULTIWORD = sorted(
@@ -57,6 +57,15 @@ _MINOR_WORDS = frozenset(
      "from", "at", "by", "de", "la", "le", "el", "con", "alla", "all"}
 )
 _NONWORD_RE = re.compile(r"[^a-z0-9'\- ]+")
+
+
+def _folded(phrase: str) -> str:
+    """Normalised, lowercased and accent-folded, ready for the [a-z] regexes.
+
+    Without the fold those regexes turn every accented letter into a space,
+    and "jalapeño" indexes as "jalape o", which nobody can type.
+    """
+    return fold_accents(normalize_text(phrase)).lower()
 
 
 @dataclass(slots=True)
@@ -110,7 +119,7 @@ def _strip_note(phrase: str) -> tuple[str, str]:
     if "," in phrase:
         head, _, tail = phrase.partition(",")
         # Keep the tail when it is part of the name ("beans, cannellini").
-        tail_words = [w for w in re.split(r"\W+", tail.lower()) if w]
+        tail_words = [w for w in re.split(r"\W+", _folded(tail)) if w]
         if tail_words and not any(
             w in INGREDIENT_NOUNS_SPACED or w in HEAD_NOUNS for w in tail_words
         ):
@@ -122,7 +131,7 @@ def _strip_note(phrase: str) -> tuple[str, str]:
 
 def clean_phrase(phrase: str) -> str:
     """Reduce a phrase to bare ingredient words: no sizes, states or noise."""
-    text = normalize_text(phrase).lower()
+    text = _folded(phrase)
     text = _PAREN_RE.sub(" ", text)
     text = _NONWORD_RE.sub(" ", text)
 
@@ -160,13 +169,13 @@ def light_normal(phrase: str) -> str:
     and "minced beef" canonicalise differently, which splits one ingredient
     into two and quietly halves its match rate.
     """
-    text = _PUNCT_RE.sub(" ", _strip_brackets(normalize_text(phrase).lower()))
+    text = _PUNCT_RE.sub(" ", _strip_brackets(_folded(phrase)))
     return " ".join(singularize(w) for w in text.split() if w)
 
 
 def plain_normal(phrase: str) -> str:
     """Lowercase and de-punctuate, keeping plurals intact."""
-    text = _PUNCT_RE.sub(" ", _strip_brackets(normalize_text(phrase).lower()))
+    text = _PUNCT_RE.sub(" ", _strip_brackets(_folded(phrase)))
     return " ".join(text.split())
 
 

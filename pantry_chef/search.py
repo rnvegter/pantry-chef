@@ -15,6 +15,7 @@ from dataclasses import dataclass, field, replace
 from .db import favourite_ids, has_table, keyed_ids_sql
 from .parse.ingredients import canonicalize
 from .parse.lexicon import STAPLES
+from .parse.quantities import fold_accents
 
 # Weights, in points. Missing an ingredient hurts roughly a third of a recipe's
 # worth of coverage, so "almost makeable" still surfaces but never outranks
@@ -564,7 +565,7 @@ def suggest_ingredients(
     conn: sqlite3.Connection, prefix: str, limit: int = 12
 ) -> list[dict]:
     """Autocomplete over ingredients actually present in the library."""
-    prefix = canonicalize(prefix) or prefix.strip().lower()
+    prefix = canonicalize(prefix) or fold_accents(prefix.strip().lower())
     if not prefix:
         return []
     rows = conn.execute(

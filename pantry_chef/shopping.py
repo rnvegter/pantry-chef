@@ -22,7 +22,7 @@ from . import db
 from .models import display_title
 from .parse.diet import CRUSTACEANS, DAIRY, EGG, FISH, MEAT, MOLLUSCS, NUTS
 from .parse.metric import G_PER_UNIT, ML_PER_UNIT, _format, _round_g, _round_ml, to_metric_line
-from .parse.quantities import parse_quantity
+from .parse.quantities import fold_accents, parse_quantity
 from .parse.scale import _agree, nice_number, scale_line
 
 MAX_SCALE = 20.0
@@ -47,7 +47,7 @@ _PRODUCE = frozenset({
     "celery", "celery rib", "mushroom", "zucchini", "courgette", "squash",
     "eggplant", "aubergine", "broccoli", "broccolini", "cauliflower",
     "asparagus", "green bean", "corn", "radish", "beet", "beetroot", "parsnip",
-    "artichoke", "brussels sprout", "jalapeño", "jalape o", "green chile",
+    "artichoke", "brussels sprout", "jalapeno", "green chile",
     "chili", "chilli", "fennel", "bok choy", "pumpkin", "banana", "apple",
     "pear", "peach", "nectarine", "plum", "mango", "pineapple", "strawberry",
     "raspberry", "blueberry", "blackberry", "cherry", "grape", "kiwifruit",
@@ -226,12 +226,14 @@ class _Item:
         """What to call it on a list: "parsley", not "chopped fresh parsley".
 
         The ingredient's own name, which is what the recipes were grouped by —
-        unless it is one the lexicon mangled ("jalape o"), when the plainest
-        wording a recipe used is better.
+        spelled with its accents when a recipe wrote them ("crème fraîche"),
+        since the key itself is folded. A key the parser mangled ("whipped
+        topping e") gives way to the plainest wording a recipe used instead.
         """
         words = self.key.split()
         if 1 <= len(words) <= 3 and all(len(w) > 1 for w in words):
-            return self.key
+            return next((n for n in self.names
+                         if n != self.key and fold_accents(n) == self.key), self.key)
         names = [n for n in self.names if n] or [self.key]
         return min(names, key=lambda n: (len(n), n))
 

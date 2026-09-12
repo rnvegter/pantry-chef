@@ -20,6 +20,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from .quantities import fold_accents
+
 MEALS = ("breakfast", "lunch", "dinner", "dessert", "snack", "side")
 
 CUISINES = (
@@ -100,7 +102,7 @@ _CUISINE_INGREDIENTS: dict[str, dict[str, int]] = {
                 "pancetta": 3, "prosciutto": 3, "arborio rice": 3, "basil": 1,
                 "balsamic vinegar": 2, "spaghetti": 2, "linguine": 2, "penne": 2,
                 "tagliatelle": 2, "gnocchi": 3, "polenta": 2, "olive oil": 0},
-    "french": {"crème fraîche": 3, "gruyere": 3, "brie": 2, "dijon mustard": 2,
+    "french": {"creme fraiche": 3, "gruyere": 3, "brie": 2, "dijon mustard": 2,
                "tarragon": 2, "shallot": 1, "white wine": 1, "heavy cream": 1,
                "vermouth": 2, "brandy": 1},
     "spanish": {"chorizo": 3, "paprika": 1, "saffron": 2, "sherry": 2,
@@ -146,7 +148,7 @@ _CUISINE_TITLES: dict[str, tuple[str, ...]] = {
                 "lasagne", "lasagna", "tiramisu", "panna cotta", "arrabbiata",
                 "cacio e pepe", "ragu", "gremolata", "piccata", "milanese"),
     "french": ("ratatouille", "cassoulet", "confit", "gratin", "tarte tatin",
-               "crème brûlée", "coq au vin", "bouillabaisse", "beurre blanc",
+               "creme brulee", "coq au vin", "bouillabaisse", "beurre blanc",
                "quiche", "croque", "clafoutis", "veloute", "provencal"),
     "spanish": ("paella", "tapas", "gazpacho", "tortilla espanola", "romesco",
                 "patatas bravas", "albondigas"),
@@ -220,6 +222,11 @@ class Classification:
     cuisine_score: float = 0.0
 
 
+def _lowered(text: str) -> str:
+    """Lowercased and accent-folded, like every word list in this module."""
+    return fold_accents(text).lower()
+
+
 def _contains(haystack: str, needles: tuple[str, ...]) -> bool:
     return any(re.search(rf"\b{re.escape(n)}", haystack) for n in needles)
 
@@ -233,8 +240,8 @@ def classify_meal(title: str, section: str, ingredients: list[str],
     next; the ingredient signature is consulted only when the book has told us
     nothing, because it can only really distinguish sweet from savoury.
     """
-    title_l = title.lower()
-    section_l = section.lower()
+    title_l = _lowered(title)
+    section_l = _lowered(section)
 
     from_section = [m for m, words in _SECTION_MEALS.items()
                     if section_l and _contains(section_l, words)]
@@ -275,8 +282,8 @@ def _finish_meals(found: list[str]) -> list[str]:
 def classify_cuisine(title: str, section: str, ingredients: list[str],
                      book_title: str = "") -> tuple[str | None, float]:
     """Best guess at a cuisine, or None when the evidence is too thin."""
-    title_l = title.lower()
-    context = f"{section.lower()} {book_title.lower()}"
+    title_l = _lowered(title)
+    context = _lowered(f"{section} {book_title}")
     names = set(ingredients)
     scores: dict[str, float] = dict.fromkeys(CUISINES, 0.0)
 
@@ -323,8 +330,8 @@ def classify(title: str, section: str, ingredients: list[str],
 # Techniques that need a practised hand, or that punish a mistake.
 ADVANCED_TECHNIQUES: frozenset[str] = frozenset({
     "temper", "tempering", "emulsify", "emulsion", "laminate", "confit",
-    "sous vide", "clarify", "caramelise", "caramelize", "deglaze", "flambé",
-    "flambe", "render", "truss", "fillet", "julienne", "brunoise", "proof",
+    "sous vide", "clarify", "caramelise", "caramelize", "deglaze", "flambe",
+    "render", "truss", "fillet", "julienne", "brunoise", "proof",
     "proving", "knead", "blanch", "braise", "poach", "reduce", "fold",
     "whip", "whisk to", "ferment", "cure", "brine", "score", "spatchcock",
     "double boiler", "bain-marie", "candy thermometer", "piping bag",
@@ -357,7 +364,7 @@ def difficulty(n_ingredients: int, n_steps: int, total_minutes: int | None,
         elif total_minutes > 60:
             score += 1
 
-    lowered = instructions.lower()
+    lowered = _lowered(instructions)
     techniques = sum(1 for t in ADVANCED_TECHNIQUES if t in lowered)
     score += min(2, techniques * 0.5)
 

@@ -103,9 +103,16 @@ def test_garlic_counted_before_the_word_is_still_cloves():
     ("pea", "Frozen"),
     ("red wine", "Drinks"),
     ("celery rib", "Fruit & veg"),         # not meat, whatever "rib" suggests
+    ("jalapeno", "Fruit & veg"),
 ])
 def test_aisles(canonical, aisle):
     assert aisle_for(canonical) == aisle
+
+
+def test_name_keeps_the_accents_a_recipe_used():
+    # The key is accent-folded; the list should still say what the book said.
+    assert _Item("jalapeno", names=["jalapeños", "jalapeño"]).name() == "jalapeño"
+    assert _Item("creme fraiche", names=["creme fraiche"]).name() == "creme fraiche"
 
 
 # --- the list -----------------------------------------------------------------------

@@ -65,7 +65,7 @@ MOLLUSCS: frozenset[str] = frozenset({
 
 DAIRY: frozenset[str] = frozenset({
     "milk", "buttermilk", "cream", "heavy cream", "light cream", "sour cream",
-    "crème fraîche", "yogurt", "greek yogurt", "butter", "ghee", "cheese",
+    "creme fraiche", "yogurt", "greek yogurt", "butter", "ghee", "cheese",
     "cheddar", "parmesan", "mozzarella", "feta", "ricotta", "mascarpone",
     "halloumi", "gruyere", "brie", "goat cheese", "blue cheese", "cream cheese",
     "manchego", "paneer", "condensed milk", "evaporated milk", "custard",

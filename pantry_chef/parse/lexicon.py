@@ -117,6 +117,8 @@ STAPLES: frozenset[str] = frozenset({
 })
 
 # Alternate names -> canonical name. Regional variants matter a lot here.
+# Canonical names are accent-folded ("creme fraiche", not "crème fraîche"),
+# and so is every key here and in the sets below; a test holds them to it.
 SYNONYMS: dict[str, str] = {
     "spring onion": "scallion", "green onion": "scallion", "salad onion": "scallion",
     "coriander leaves": "coriander", "cilantro": "coriander",
@@ -157,7 +159,7 @@ SYNONYMS: dict[str, str] = {
     "chilli powder": "chili powder", "paprika sweet": "paprika",
     "soy": "soy sauce", "shoyu": "soy sauce", "tamari": "soy sauce",
     "fish sauce nam pla": "fish sauce", "nam pla": "fish sauce",
-    "creme fraiche": "crème fraîche", "parmigiano": "parmesan",
+    "parmigiano": "parmesan",
     "parmigiano reggiano": "parmesan", "grana padano": "parmesan",
     "mozzarella cheese": "mozzarella", "cheddar cheese": "cheddar",
     "feta cheese": "feta", "goats cheese": "goat cheese",
@@ -223,7 +225,7 @@ rabbit venison liver oxtail mince
 fish salmon tuna cod haddock halibut sea_bass snapper trout mackerel sardine
 anchovy herring sole plaice monkfish shrimp prawn crab lobster scallop mussel
 clam oyster squid octopus calamari
-egg egg_white egg_yolk milk buttermilk cream heavy_cream sour_cream yogurt
+egg egg_white egg_yolk milk buttermilk cream heavy_cream sour_cream creme_fraiche yogurt
 greek_yogurt butter ghee cheese cheddar parmesan mozzarella feta ricotta
 mascarpone halloumi gruyere brie goat_cheese blue_cheese cream_cheese
 rice basmati_rice arborio_rice jasmine_rice brown_rice wild_rice quinoa
