@@ -564,7 +564,7 @@ Worth knowing before you trust a result:
 .venv/bin/python -m pytest -q
 ```
 
-439 tests covering quantity parsing, ingredient canonicalisation, time
+453 tests covering quantity parsing, ingredient canonicalisation, time
 extraction, meal and cuisine classification, allergen and diet derivation,
 metric conversion, serving scaling, cook-mode timers, title casing and step
 splitting, photo extraction, downscaling and thumbnails, favourites, hand
